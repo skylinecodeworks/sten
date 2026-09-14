@@ -1,0 +1,4 @@
+*.o
+sten
+tools/gen
+tests/build/
