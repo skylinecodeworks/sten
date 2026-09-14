@@ -11,14 +11,19 @@
 #include "crypto.h"
 #include "format.h"
 
+#define STEN_VERSION "2.0"
+
+static int verbose_flag = 0;
+
 static void usage(FILE *f) {
     fprintf(f,
-        "sten - ScatterBit steganography for images (pure C, no libraries)\n"
+        "sten %s - ScatterBit steganography for images (pure C, no libraries)\n"
         "\n"
         "usage:\n"
         "  sten encode -i image -o output (-m \"text\" | -f file) [-k key | -p passphrase]\n"
         "  sten decode -i image [-k key | -p passphrase]\n"
         "  sten capacity -i image\n"
+        "  sten inspect -i image\n"
         "\n"
         "options:\n"
         "  -i, --input   input image (BMP, PNG, GIF, JPEG, PNM/PAM, TGA, TIFF, ICO)\n"
@@ -27,7 +32,9 @@ static void usage(FILE *f) {
         "  -f, --file    read the message from a file\n"
         "  -k, --key     optional key (derives the bit path)\n"
         "  -p, --passphrase optional passphrase (encrypts the payload; ChaCha20 + PBKDF2)\n"
-        "  -h, --help    show this help\n");
+        "  -v, --verbose print details about the detected format to stderr\n"
+        "  -h, --help    show this help\n"
+        "      --version print the version and exit\n", STEN_VERSION);
 }
 
 static unsigned char *read_file(const char *path, size_t *len) {
@@ -120,6 +127,14 @@ typedef int (*embed_fn)(unsigned char *, size_t, const unsigned char *, size_t,
 typedef int (*extract_fn)(unsigned char *, size_t, const unsigned char *, size_t,
                           const unsigned char *, unsigned char **, size_t *);
 typedef int (*capacity_fn)(const unsigned char *, size_t, size_t *);
+typedef int (*inspect_fn)(const unsigned char *, size_t, sten_info_t *);
+
+static const char *format_of(const unsigned char *d, size_t n, fmt_t *out) {
+    fmt_t f = detect_format(d, n);
+    if (out)
+        *out = f;
+    return fmt_name(f);
+}
 
 static int do_encode(const char *in_path, const char *out_path,
                      const char *msg, const char *msgfile,
@@ -139,7 +154,11 @@ static int do_encode(const char *in_path, const char *out_path,
         return 3;
     }
     embed_fn fn = NULL;
-    switch (detect_format(in, in_len)) {
+    fmt_t f;
+    format_of(in, in_len, &f);
+    if (verbose_flag)
+        fprintf(stderr, "sten: encoding into %s (%zu bytes)\n", fmt_name(f), msg_len);
+    switch (f) {
     case FMT_BMP:    fn = bmp_embed;    break;
     case FMT_PNG:    fn = png_embed;    break;
     case FMT_GIF:    fn = gif_embed;    break;
@@ -178,7 +197,11 @@ static int do_decode(const char *in_path, const unsigned char *key, size_t klen,
     if (!in)
         return 3;
     extract_fn fn = NULL;
-    switch (detect_format(in, in_len)) {
+    fmt_t f;
+    format_of(in, in_len, &f);
+    if (verbose_flag)
+        fprintf(stderr, "sten: decoding %s\n", fmt_name(f));
+    switch (f) {
     case FMT_BMP:    fn = bmp_extract;    break;
     case FMT_PNG:    fn = png_extract;    break;
     case FMT_GIF:    fn = gif_extract;    break;
@@ -214,7 +237,11 @@ static int do_capacity(const char *in_path) {
     if (!in)
         return 3;
     capacity_fn fn = NULL;
-    switch (detect_format(in, in_len)) {
+    fmt_t f;
+    format_of(in, in_len, &f);
+    if (verbose_flag)
+        fprintf(stderr, "sten: %s\n", fmt_name(f));
+    switch (f) {
     case FMT_BMP:    fn = bmp_capacity;    break;
     case FMT_PNG:    fn = png_capacity;    break;
     case FMT_GIF:    fn = gif_capacity;    break;
@@ -237,6 +264,54 @@ static int do_capacity(const char *in_path) {
     return 0;
 }
 
+static int do_inspect(const char *in_path) {
+    size_t in_len;
+    unsigned char *in = read_file(in_path, &in_len);
+    if (!in)
+        return 3;
+    fmt_t f;
+    format_of(in, in_len, &f);
+    inspect_fn fn = NULL;
+    capacity_fn cap = NULL;
+    switch (f) {
+    case FMT_BMP:    fn = bmp_inspect;    cap = bmp_capacity;    break;
+    case FMT_PNG:    fn = png_inspect;    cap = png_capacity;    break;
+    case FMT_GIF:    fn = gif_inspect;    cap = gif_capacity;    break;
+    case FMT_JPEG:   fn = jpeg_inspect;   cap = jpeg_capacity;   break;
+    case FMT_NETPBM: fn = ppm_inspect;    cap = ppm_capacity;    break;
+    case FMT_TGA:    fn = tga_inspect;    cap = tga_capacity;    break;
+    case FMT_TIFF:   fn = tiff_inspect;   cap = tiff_capacity;   break;
+    case FMT_ICO:    fn = ico_inspect;    cap = ico_capacity;    break;
+    default:
+        fprintf(stderr, "error: unsupported format\n");
+        free(in);
+        return 3;
+    }
+    sten_info_t info;
+    memset(&info, 0, sizeof(info));
+    if (fn(in, in_len, &info) != 0) {
+        free(in);
+        return 3;
+    }
+    size_t bytes = 0;
+    int rc = cap(in, in_len, &bytes);
+    free(in);
+    if (rc != 0)
+        return 3;
+    printf("format: %s\n", fmt_name(f));
+    if (info.has_dims) {
+        printf("width: %ld\n", info.w);
+        printf("height: %ld\n", info.h);
+    } else {
+        printf("width: n/a\n");
+        printf("height: n/a\n");
+    }
+    printf("channels: %d\n", info.channels);
+    printf("bits per channel: %d\n", info.bits);
+    printf("capacity: %zu bytes\n", bytes);
+    return 0;
+}
+
 static const unsigned char PBKDF2_SALT[16] = "sten-pbkdf2-salt";
 
 int main(int argc, char **argv) {
@@ -249,6 +324,10 @@ int main(int argc, char **argv) {
         usage(stdout);
         return 0;
     }
+    if (!strcmp(cmd, "-V") || !strcmp(cmd, "--version")) {
+        printf("sten %s\n", STEN_VERSION);
+        return 0;
+    }
     const char *in_path = NULL, *out_path = NULL, *key = NULL, *msg = NULL, *msgfile = NULL;
     const char *pass = NULL;
 
@@ -259,11 +338,13 @@ int main(int argc, char **argv) {
         { "file",       required_argument, 0, 'f' },
         { "key",        required_argument, 0, 'k' },
         { "passphrase", required_argument, 0, 'p' },
+        { "verbose",    no_argument,       0, 'v' },
+        { "version",    no_argument,       0, 'V' },
         { "help",       no_argument,       0, 'h' },
         { 0, 0, 0, 0 }
     };
     int c;
-    while ((c = getopt_long(argc - 1, argv + 1, "i:o:m:f:k:p:h", lopts, NULL)) != -1) {
+    while ((c = getopt_long(argc - 1, argv + 1, "i:o:m:f:k:p:vVh", lopts, NULL)) != -1) {
         switch (c) {
         case 'i': in_path = optarg;  break;
         case 'o': out_path = optarg; break;
@@ -271,6 +352,8 @@ int main(int argc, char **argv) {
         case 'f': msgfile = optarg;  break;
         case 'k': key = optarg;      break;
         case 'p': pass = optarg;     break;
+        case 'v': verbose_flag = 1;  break;
+        case 'V': printf("sten %s\n", STEN_VERSION); return 0;
         case 'h': usage(stdout);     return 0;
         default:  usage(stderr);     return 2;
         }
@@ -320,6 +403,13 @@ int main(int argc, char **argv) {
             return 2;
         }
         return do_capacity(in_path);
+    }
+    if (!strcmp(cmd, "inspect")) {
+        if (!in_path) {
+            usage(stderr);
+            return 2;
+        }
+        return do_inspect(in_path);
     }
     usage(stderr);
     return 2;

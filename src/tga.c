@@ -9,7 +9,8 @@
  * Pixels are edited in place and the file keeps its size. */
 
 static int tga_parse(const unsigned char *in, size_t len,
-                     unsigned char **pixels, size_t *pix_len) {
+                     unsigned char **pixels, size_t *pix_len,
+                     long *w_out, long *h_out, int *ch_out) {
     if (len < 18 || in[1] != 0) {
         fprintf(stderr, "error: invalid TGA (expected no color map)\n");
         return -1;
@@ -48,6 +49,12 @@ static int tga_parse(const unsigned char *in, size_t len,
     }
     *pixels = (unsigned char *)in + start;
     *pix_len = need;
+    if (w_out)
+        *w_out = (long)w;
+    if (h_out)
+        *h_out = (long)h;
+    if (ch_out)
+        *ch_out = (int)(bpp / 8);
     return 0;
 }
 
@@ -56,7 +63,7 @@ int tga_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t
               unsigned char **out, size_t *out_len) {
     unsigned char *pixels;
     size_t pix_len;
-    if (tga_parse(in, in_len, &pixels, &pix_len))
+    if (tga_parse(in, in_len, &pixels, &pix_len, NULL, NULL, NULL))
         return -1;
     carrier_t c = { pixels, pix_len, NULL };
     int rc = scatter_embed_ex(&c, pixels, pix_len, msg, msg_len, key, key_len, 3, enc_key);
@@ -77,7 +84,7 @@ int tga_extract(unsigned char *in, size_t in_len, const unsigned char *key, size
                 const unsigned char *enc_key, unsigned char **msg, size_t *msg_len) {
     unsigned char *pixels;
     size_t pix_len;
-    if (tga_parse(in, in_len, &pixels, &pix_len))
+    if (tga_parse(in, in_len, &pixels, &pix_len, NULL, NULL, NULL))
         return -1;
     carrier_t c = { pixels, pix_len, NULL };
     return scatter_auto_extract_ex(&c, pixels, pix_len, key, key_len, enc_key, msg, msg_len);
@@ -86,9 +93,23 @@ int tga_extract(unsigned char *in, size_t in_len, const unsigned char *key, size
 int tga_capacity(const unsigned char *in, size_t in_len, size_t *bytes) {
     unsigned char *pixels;
     size_t pix_len;
-    if (tga_parse(in, in_len, &pixels, &pix_len))
+    if (tga_parse(in, in_len, &pixels, &pix_len, NULL, NULL, NULL))
         return -1;
     carrier_t c = { pixels, pix_len, NULL };
     *bytes = scatter_msg_capacity(&c, 3);
+    return 0;
+}
+int tga_inspect(const unsigned char *in, size_t in_len, sten_info_t *info) {
+    unsigned char *pixels;
+    size_t pix_len;
+    long w = 0, h = 0;
+    int ch = 0;
+    if (tga_parse(in, in_len, &pixels, &pix_len, &w, &h, &ch))
+        return -1;
+    info->w = w;
+    info->h = h;
+    info->channels = ch;
+    info->bits = 8;
+    info->has_dims = 1;
     return 0;
 }

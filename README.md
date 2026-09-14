@@ -8,6 +8,7 @@
 sten encode -i image -o output (-m "text" | -f file) [-k key | -p passphrase]
 sten decode -i image [-k key | -p passphrase]
 sten capacity -i image
+sten inspect -i image
 ```
 
 Options:
@@ -19,13 +20,17 @@ Options:
 | `-m, --message`| text message to hide |
 | `-f, --file`   | read the message from a file |
 | `-k, --key`    | optional key (derives the bit path) |
-| `-p, --passphrase` | optional passphrase (encrypts the payload) |
+| `-p, --passphrase` | optional passphrase (encrypts the payload with ChaCha20 + PBKDF2) |
+| `-v, --verbose`| print the detected format details to stderr |
 | `-h, --help`   | show this help |
+| `-V, --version`| print the version and exit |
 
 If neither `-m` nor `-f` is given, the message is read from stdin.
 
 The `capacity` command prints the maximum message size (in bytes) that fits
-in the given image, using the default redundancy 3.
+in the given image, using the default redundancy 3. The `inspect` command
+reports the format, dimensions, color layout and capacity of an image, so
+you can pick the best carrier for a payload.
 
 ## Exit codes
 
@@ -82,8 +87,12 @@ make            # builds ./sten
 make test       # builds and runs the full test suite
 make fuzz-san   # mutation fuzzer over the parsers under ASan/UBSan
 make test-san   # full suite rebuilt with ASan/UBSan
+make install    # installs ./sten and docs/sten.1 under /usr/local
 make clean      # removes build artifacts
 ```
+
+`make install` honours `PREFIX` (default `/usr/local`) and `DESTDIR`, and
+installs the manual page to `$(PREFIX)/share/man/man1/sten.1`.
 
 Requires a C99/C11 compiler and `make`. Runs on any POSIX system.
 
@@ -119,5 +128,28 @@ Phase 3 adds defensive checks:
   plus adversarial seeds for each format).
 - `make test-san` rebuilds the whole suite with ASan/UBSan and is the CI
   gate for memory safety.
+
+## Benchmarks
+
+`make bench` runs `tools/bench.sh` against the generated carriers:
+256×256 for BMP/PNG; the test fixtures for the rest. It hides a 1 KB payload
+at redundancy 3 and measures wall-clock time on this machine (single run,
+results are indicative). `capacity` is the exact capacity reported by
+`sten capacity`.
+
+| format | image (B) | capacity (B) | ratio | encode (ms) | decode (ms) |
+| --- | --- | --- | --- | --- | --- |
+| BMP | 196662 | 24563 | 12.5 % | 4 | 4 |
+| PNG | 196947 | 24563 | 12.5 % | 16 | 6 |
+| GIF | 799 | 127 | 15.9 % | 2 | 2 |
+| JPEG | 369 | 16370 | 4435 % | 2 | 2 |
+| PNM/PAM | 1549 | 179 | 11.6 % | 2 | 2 |
+| TGA | 1554 | 179 | 11.5 % | 2 | 2 |
+| TIFF | 1676 | 179 | 10.7 % | 2 | 2 |
+| ICO | 1130 | 115 | 10.2 % | 2 | 2 |
+
+JPEG capacity dwarfs the others because the message lives in a COM segment
+and pixels are never touched. For raster carriers, capacity per byte is the
+adaptive 1-3 LSB scheme capped by the `SBT2` overhead.
 
 See `ROADMAP.md` for the development roadmap.
