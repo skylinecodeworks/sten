@@ -323,7 +323,7 @@ int png_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t
 
     unsigned char *zdata;
     size_t zlen;
-    if (deflate_zlib_stored(raw, raw_len, &zdata, &zlen)) {
+    if (deflate_zlib(raw, raw_len, &zdata, &zlen)) {
         fprintf(stderr, "error: could not compress the IDAT\n");
         free(raw);
         free(pre);

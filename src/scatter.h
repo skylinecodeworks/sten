@@ -20,6 +20,11 @@ int scatter_embed(carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
                   const unsigned char *msg, size_t msg_len,
                   const unsigned char *key, size_t key_len, int redundancy);
 
+/* Legacy v1 (SBT1) embed; the extractor still reads v1 payloads. */
+int scatter_embed_v1(carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
+                     const unsigned char *msg, size_t msg_len,
+                     const unsigned char *key, size_t key_len, int redundancy);
+
 /* Extracts by testing redundancies 3, 2 and 1.
  * Returns 0 ok, 1 no message (or wrong key), -1 internal error. */
 int scatter_auto_extract(const carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
