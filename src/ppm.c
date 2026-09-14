@@ -1,11 +1,36 @@
 #include "adapters.h"
 #include "scatter.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 /* Netpbm: binary PPM (P6), PGM (P5) and PAM (P7), 8-bit. Pixels are edited
  * in place and the file keeps its size. */
+
+/* Parses an integer from a not-necessarily-NUL-terminated PAM header line.
+ * Returns -1 when no digits / value out of range. */
+static long pam_num(const unsigned char *s, size_t n) {
+    size_t i = 0;
+    int neg = 0;
+    long v = 0;
+    if (n > 0 && s[0] == '-') {
+        neg = 1;
+        i = 1;
+    }
+    int have = 0;
+    for (; i < n; i++) {
+        if (s[i] < '0' || s[i] > '9')
+            break;
+        have = 1;
+        if (v > 100000)
+            return -1;
+        v = v * 10 + (s[i] - '0');
+    }
+    if (!have)
+        return -1;
+    return neg ? -v : v;
+}
 
 static int netpbm_parse(const unsigned char *in, size_t len,
                         unsigned char **pixels, size_t *pix_len) {
@@ -66,7 +91,12 @@ static int netpbm_parse(const unsigned char *in, size_t len,
             return -1;
         }
         p++;
-        size_t need = (size_t)w * (size_t)h * (magic == '6' ? 3 : 1);
+        size_t mul = magic == '6' ? 3 : 1;
+        if ((size_t)w > SIZE_MAX / (size_t)h / mul) {
+            fprintf(stderr, "error: Netpbm dimensions too large\n");
+            return -1;
+        }
+        size_t need = (size_t)w * (size_t)h * mul;
         if (len - p < need) {
             fprintf(stderr, "error: Netpbm pixel data out of range\n");
             return -1;
@@ -97,16 +127,20 @@ static int netpbm_parse(const unsigned char *in, size_t len,
                 break;
             }
             if (llen >= 5 && !memcmp(in + line_start, "WIDTH", 5) && llen > 6)
-                w = atol((const char *)in + line_start + 6);
+                w = pam_num(in + line_start + 6, llen - 6);
             else if (llen >= 6 && !memcmp(in + line_start, "HEIGHT", 6) && llen > 7)
-                h = atol((const char *)in + line_start + 7);
+                h = pam_num(in + line_start + 7, llen - 7);
             else if (llen >= 5 && !memcmp(in + line_start, "DEPTH", 5) && llen > 6)
-                depth = atol((const char *)in + line_start + 6);
+                depth = pam_num(in + line_start + 6, llen - 6);
             else if (llen >= 6 && !memcmp(in + line_start, "MAXVAL", 6) && llen > 7)
-                maxval = atol((const char *)in + line_start + 7);
+                maxval = pam_num(in + line_start + 7, llen - 7);
         }
         if (!got || w <= 0 || h <= 0 || depth < 1 || depth > 4 || maxval != 255) {
             fprintf(stderr, "error: PAM must be 8-bit, depth 1-4, maxval 255\n");
+            return -1;
+        }
+        if (w > 100000 || h > 100000) {
+            fprintf(stderr, "error: PAM dimensions too large\n");
             return -1;
         }
         size_t need = (size_t)w * (size_t)h * (size_t)depth;

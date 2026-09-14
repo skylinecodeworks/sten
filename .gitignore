@@ -1,4 +1,5 @@
 *.o
 sten
 tools/gen
+tools/fuzz
 tests/build/

@@ -48,10 +48,6 @@ static int ico_find_png(const unsigned char *in, size_t len,
     return -1;
 }
 
-static void w_le16(unsigned char *p, unsigned v) {
-    p[0] = (unsigned char)(v & 0xFF);
-    p[1] = (unsigned char)((v >> 8) & 0xFF);
-}
 static void w_le32(unsigned char *p, unsigned long v) {
     p[0] = (unsigned char)(v & 0xFF);
     p[1] = (unsigned char)((v >> 8) & 0xFF);

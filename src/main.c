@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <getopt.h>
+#include <sys/stat.h>
 
 #include "adapters.h"
 #include "crypto.h"
@@ -33,6 +34,12 @@ static unsigned char *read_file(const char *path, size_t *len) {
     FILE *f = fopen(path, "rb");
     if (!f) {
         fprintf(stderr, "error: could not open %s\n", path);
+        return NULL;
+    }
+    struct stat st;
+    if (fstat(fileno(f), &st) == 0 && S_ISDIR(st.st_mode)) {
+        fclose(f);
+        fprintf(stderr, "error: %s is a directory\n", path);
         return NULL;
     }
     if (fseek(f, 0, SEEK_END) != 0) {

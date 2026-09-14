@@ -24,11 +24,35 @@ $(UNIT): tests/unit.c src/util.o src/deflate.o src/scatter.o src/crypto.o
 	@mkdir -p tests/build
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/unit.c src/util.o src/deflate.o src/scatter.o src/crypto.o
 
-test: $(BIN) tools/gen $(UNIT)
+FUZZOBJ = src/util.o src/deflate.o src/crypto.o src/format.o \
+          src/bmp.o src/png.o src/gif.o src/jpeg.o src/ppm.o \
+          src/tga.o src/tiff.o src/ico.o src/scatter.o
+
+tools/fuzz: tools/fuzz.c $(FUZZOBJ)
+	$(CC) $(CFLAGS) -Isrc -o $@ tools/fuzz.c $(FUZZOBJ)
+
+SANFLAGS = -fsanitize=address,undefined -fno-sanitize-recover=all -O1 -g
+
+# Full suite (CLI + gen + unit + fuzz harness) under ASan/UBSan.
+test-san: clean
+	$(MAKE) CFLAGS="$(CFLAGS) $(SANFLAGS)" test
+
+# Standalone sanitized fuzzer over the generated fixtures.
+fuzz-san: clean
+	$(MAKE) CFLAGS="$(CFLAGS) $(SANFLAGS)" tools/gen tools/fuzz
+	mkdir -p tests/build
+	tools/gen tests/build
+	./tools/fuzz 5000 tests/build/*.bmp tests/build/*.png tests/build/*.gif \
+	    tests/build/*.jpg tests/build/*.ppm tests/build/*.tga \
+	    tests/build/*.tiff tests/build/*.ico
+
+fuzz: tools/fuzz
+
+test: $(BIN) tools/gen $(UNIT) tools/fuzz
 	sh tests/run.sh
 
 clean:
-	rm -f $(OBJ) $(BIN) tools/gen $(UNIT)
+	rm -f $(OBJ) $(BIN) tools/gen $(UNIT) tools/fuzz
 	rm -rf tests/build
 
-.PHONY: all test clean
+.PHONY: all test clean fuzz fuzz-san test-san

@@ -35,8 +35,21 @@ static int bmp_parse(const unsigned char *in, size_t len,
         return -1;
     }
     int64_t h = hraw < 0 ? -hraw : hraw;
-    size_t rb = (size_t)w * (bpp / 8);
+    uint32_t pxb = bpp / 8;
+    if ((uint64_t)w * pxb > SIZE_MAX) {
+        fprintf(stderr, "error: invalid dimensions\n");
+        return -1;
+    }
+    size_t rb = (size_t)w * pxb;
+    if (rb > SIZE_MAX - 3) {
+        fprintf(stderr, "error: invalid dimensions\n");
+        return -1;
+    }
     size_t st = (rb + 3) & ~(size_t)3;
+    if ((size_t)h > SIZE_MAX / st) {
+        fprintf(stderr, "error: invalid dimensions\n");
+        return -1;
+    }
     size_t plen = st * (size_t)h;
     if ((uint64_t)off + plen > len) {
         fprintf(stderr, "error: pixel data out of range\n");

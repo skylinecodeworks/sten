@@ -80,6 +80,8 @@ payload ends with a CRC32 tag over the plaintext.
 ```
 make            # builds ./sten
 make test       # builds and runs the full test suite
+make fuzz-san   # mutation fuzzer over the parsers under ASan/UBSan
+make test-san   # full suite rebuilt with ASan/UBSan
 make clean      # removes build artifacts
 ```
 
@@ -105,5 +107,17 @@ Requires a C99/C11 compiler and `make`. Runs on any POSIX system.
 
 Shell-driven integration suite (`tests/run.sh`) plus C unit tests
 (`tests/unit.c`). `make test` must stay green before merging any phase.
+
+Phase 3 adds defensive checks:
+
+- All parsers (BMP, PNG, GIF, JPEG, PNM/PAM, TGA, TIFF, ICO) reject
+  truncated input, overflowed dimensions/offsets and oversized decompression
+  targets; a malicious stream cannot allocate beyond its declared size.
+- `tools/fuzz` is a mutation-based harness that runs every adapter against
+  thousands of mutated images; `make fuzz-san` runs it under ASan/UBSan.
+  The regression corpus lives in `tests/cases/14_fuzz.sh` (valid carriers
+  plus adversarial seeds for each format).
+- `make test-san` rebuilds the whole suite with ASan/UBSan and is the CI
+  gate for memory safety.
 
 See `ROADMAP.md` for the development roadmap.
