@@ -26,6 +26,14 @@ assert_rc "PNG 1x1 no capacity -> 3" 3 "$BIN" encode -i "$D/tiny.png" -o "$D/x.p
 # A directory as input must not hang.
 assert_rc "directory as input -> 3" 3 "$BIN" decode -i "$D"
 
+# Formats other than the classic four must survive truncation too.
+for f in test.ppm test.tga test.tiff test.ico; do
+    head -c 100 "$D/$f" > "$D/trunc_$f"
+    "$BIN" decode -i "$D/trunc_$f" >/dev/null 2>&1
+    _rc=$?
+    assert_ne "truncated $f does not decode cleanly" "0" "$_rc"
+done
+
 # Detection is by content: the wrong extension does not matter.
 cp "$D/test.png" "$D/mal_extension.bmp"
 check_roundtrip "content-based detection (png with .bmp)" "$D/mal_extension.bmp" "content wins"

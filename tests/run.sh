@@ -21,7 +21,7 @@ fi
     exit 1
 }
 
-for c in 00_docs 01_cli 02_bmp 03_png 04_gif 05_jpeg 06_roundtrip 07_robustness 08_compression 09_crypto 10_netpbm 11_tga 12_tiff 13_ico; do
+for c in 00_docs 01_cli 02_bmp 03_png 04_gif 05_jpeg 06_roundtrip 07_robustness 08_compression 09_crypto 10_netpbm 11_tga 12_tiff 13_ico 14_fuzz; do
     printf '\n== %s ==\n' "$c"
     . "$ROOT/tests/cases/$c.sh"
 done

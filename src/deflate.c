@@ -171,9 +171,12 @@ int inflate_zlib(const unsigned char *src, size_t src_len,
                 goto fail;
             if (b.pos + (size_t)len > b.len)
                 goto fail;
+            if (expected_len && o.n + (size_t)len > expected_len)
+                goto fail;
             if (ob_reserve(&o, (size_t)len))
                 goto fail;
-            memcpy(o.d + o.n, b.p + b.pos, (size_t)len);
+            if (len)
+                memcpy(o.d + o.n, b.p + b.pos, (size_t)len);
             o.n += (size_t)len;
             b.pos += (size_t)len;
         } else if (type == 1 || type == 2) {
@@ -245,6 +248,8 @@ int inflate_zlib(const unsigned char *src, size_t src_len,
                 if (sym < 0)
                     goto fail;
                 if (sym < 256) {
+                    if (expected_len && o.n + 1 > expected_len)
+                        goto fail;
                     if (ob_reserve(&o, 1))
                         goto fail;
                     o.d[o.n++] = (unsigned char)sym;
@@ -266,6 +271,8 @@ int inflate_zlib(const unsigned char *src, size_t src_len,
                         goto fail;
                     int distance = dist_base[dsym] + dextra;
                     if ((size_t)distance > o.n)
+                        goto fail;
+                    if (expected_len && o.n + (size_t)length > expected_len)
                         goto fail;
                     if (ob_reserve(&o, (size_t)length))
                         goto fail;

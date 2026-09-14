@@ -80,6 +80,10 @@ static int png_load(const unsigned char *in, size_t len,
                 fprintf(stderr, "error: PNG must be 8-bit RGB/RGBA without interlacing\n");
                 goto done;
             }
+            if (*w == 0 || *h == 0) {
+                fprintf(stderr, "error: invalid PNG dimensions\n");
+                goto done;
+            }
             *color_type = ct;
             got_ihdr = 1;
             if (buf_append(&p, &pre_cap, &p_len, in + pos, 12 + clen))
@@ -257,6 +261,22 @@ static int png_to_filtered(unsigned char *buf, uint32_t h, size_t stride, size_t
     return 0;
 }
 
+static int png_dims(uint32_t w, uint32_t h, unsigned ct, size_t *stride, size_t *expected) {
+    size_t pxb = ct == 6 ? 4 : 3;
+    if (w == 0 || h == 0)
+        return -1;
+    if ((size_t)w > (SIZE_MAX - 1) / pxb)
+        return -1;
+    size_t st = 1 + (size_t)w * pxb;
+    if (st > SIZE_MAX / (size_t)h)
+        return -1;
+    *stride = st;
+    *expected = st * (size_t)h;
+    if (*expected > (size_t)1 << 28)
+        return -1;
+    return 0;
+}
+
 int png_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t msg_len,
               const unsigned char *key, size_t key_len, const unsigned char *enc_key,
               unsigned char **out, size_t *out_len) {
@@ -267,9 +287,15 @@ int png_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t
     if (png_load(in, in_len, &w, &h, &ct, &pre, &pre_len, &idat, &idat_len, &iend, &iend_len))
         return -1;
 
-    size_t stride = 1 + (size_t)w * (ct == 6 ? 4 : 3);
+    size_t stride, expected;
+    if (png_dims(w, h, ct, &stride, &expected)) {
+        fprintf(stderr, "error: PNG dimensions too large\n");
+        free(pre);
+        free(idat);
+        free(iend);
+        return -1;
+    }
     size_t bpp = ct == 6 ? 4 : 3;
-    size_t expected = stride * (size_t)h;
     unsigned char *raw = NULL;
     size_t raw_len = 0;
     if (inflate_zlib(idat, idat_len, &raw, &raw_len, expected)) {
@@ -371,9 +397,15 @@ int png_extract(unsigned char *in, size_t in_len, const unsigned char *key, size
     if (png_load(in, in_len, &w, &h, &ct, &pre, &pre_len, &idat, &idat_len, &iend, &iend_len))
         return -1;
 
-    size_t stride = 1 + (size_t)w * (ct == 6 ? 4 : 3);
+    size_t stride, expected;
+    if (png_dims(w, h, ct, &stride, &expected)) {
+        fprintf(stderr, "error: PNG dimensions too large\n");
+        free(pre);
+        free(idat);
+        free(iend);
+        return -1;
+    }
     size_t bpp = ct == 6 ? 4 : 3;
-    size_t expected = stride * (size_t)h;
     unsigned char *raw = NULL;
     size_t raw_len = 0;
     if (inflate_zlib(idat, idat_len, &raw, &raw_len, expected)) {
@@ -420,9 +452,15 @@ int png_capacity(const unsigned char *in, size_t in_len, size_t *bytes) {
     if (png_load((unsigned char *)in, in_len, &w, &h, &ct, &pre, &pre_len, &idat, &idat_len, &iend, &iend_len))
         return -1;
 
-    size_t stride = 1 + (size_t)w * (ct == 6 ? 4 : 3);
+    size_t stride, expected;
+    if (png_dims(w, h, ct, &stride, &expected)) {
+        fprintf(stderr, "error: PNG dimensions too large\n");
+        free(pre);
+        free(idat);
+        free(iend);
+        return -1;
+    }
     size_t bpp = ct == 6 ? 4 : 3;
-    size_t expected = stride * (size_t)h;
     unsigned char *raw = NULL;
     size_t raw_len = 0;
     if (inflate_zlib(idat, idat_len, &raw, &raw_len, expected)) {

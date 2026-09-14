@@ -43,7 +43,7 @@ static int jpeg_find_com(const unsigned char *in, size_t len, cominfo_t *ci) {
         if (p + 2 > len)
             break;
         uint32_t l = ((uint32_t)in[p] << 8) | in[p + 1];
-        if (l < 2 || p + l > len)
+        if (l < 2 || (uint64_t)p + l > len)
             break;
         if (m == 0xFE) {
             ci->start = q;
@@ -71,6 +71,10 @@ int jpeg_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_
         return -1;
     }
     size_t L = plen * 4;
+    if (in_len + (size_t)4 + L < in_len) {
+        fprintf(stderr, "error: JPEG too large\n");
+        return -1;
+    }
     size_t olen = in_len + 4 + L;
     unsigned char *o = (unsigned char *)malloc(olen);
     if (!o) {

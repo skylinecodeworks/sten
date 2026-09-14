@@ -1,5 +1,6 @@
 #include "adapters.h"
 #include "scatter.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,7 +38,7 @@ static int tiff_parse(const unsigned char *in, size_t len,
         return -1;
     }
     unsigned long ifd = g_ulong(in + 4);
-    if (ifd + 2 > len) {
+    if ((uint64_t)ifd + 2 > len) {
         fprintf(stderr, "error: TIFF IFD out of range\n");
         return -1;
     }
@@ -46,7 +47,7 @@ static int tiff_parse(const unsigned char *in, size_t len,
         fprintf(stderr, "error: TIFF with empty IFD\n");
         return -1;
     }
-    if (ifd + 2 + (unsigned long)n * 12 + 4 > len) {
+    if ((uint64_t)ifd + 2 + (uint64_t)n * 12 + 4 > len) {
         fprintf(stderr, "error: TIFF IFD out of range\n");
         return -1;
     }

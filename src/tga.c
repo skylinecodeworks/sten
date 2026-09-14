@@ -1,5 +1,6 @@
 #include "adapters.h"
 #include "scatter.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,6 +37,10 @@ static int tga_parse(const unsigned char *in, size_t len,
         return -1;
     }
     size_t start = 18 + (size_t)in[0];
+    if (w > SIZE_MAX / h / (bpp / 8)) {
+        fprintf(stderr, "error: TGA dimensions too large\n");
+        return -1;
+    }
     size_t need = w * h * (bpp / 8);
     if (start > len || len - start < need) {
         fprintf(stderr, "error: TGA pixel data out of range\n");
