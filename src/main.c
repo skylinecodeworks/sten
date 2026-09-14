@@ -7,6 +7,7 @@
 #include <getopt.h>
 
 #include "adapters.h"
+#include "crypto.h"
 #include "format.h"
 
 static void usage(FILE *f) {
@@ -14,15 +15,17 @@ static void usage(FILE *f) {
         "sten - ScatterBit steganography for images (pure C, no libraries)\n"
         "\n"
         "usage:\n"
-        "  sten encode -i image -o output (-m \"text\" | -f file) [-k key]\n"
-        "  sten decode -i image [-k key]\n"
+        "  sten encode -i image -o output (-m \"text\" | -f file) [-k key | -p passphrase]\n"
+        "  sten decode -i image [-k key | -p passphrase]\n"
+        "  sten capacity -i image\n"
         "\n"
         "options:\n"
-        "  -i, --input   input image (BMP, PNG, GIF, JPEG)\n"
+        "  -i, --input   input image (BMP, PNG, GIF, JPEG, PNM/PAM, TGA, TIFF, ICO)\n"
         "  -o, --output  output image (encode only)\n"
         "  -m, --message text message to hide\n"
         "  -f, --file    read the message from a file\n"
         "  -k, --key     optional key (derives the bit path)\n"
+        "  -p, --passphrase optional passphrase (encrypts the payload; ChaCha20 + PBKDF2)\n"
         "  -h, --help    show this help\n");
 }
 
@@ -105,12 +108,16 @@ static unsigned char *read_message(const char *msg, const char *msgfile, size_t 
 }
 
 typedef int (*embed_fn)(unsigned char *, size_t, const unsigned char *, size_t,
-                        const unsigned char *, size_t, unsigned char **, size_t *);
+                        const unsigned char *, size_t, const unsigned char *,
+                        unsigned char **, size_t *);
 typedef int (*extract_fn)(unsigned char *, size_t, const unsigned char *, size_t,
-                          unsigned char **, size_t *);
+                          const unsigned char *, unsigned char **, size_t *);
+typedef int (*capacity_fn)(const unsigned char *, size_t, size_t *);
 
 static int do_encode(const char *in_path, const char *out_path,
-                     const char *msg, const char *msgfile, const char *key) {
+                     const char *msg, const char *msgfile,
+                     const unsigned char *key, size_t klen,
+                     const unsigned char *enc_key) {
     size_t msg_len = 0;
     unsigned char *msgdata = read_message(msg, msgfile, &msg_len);
     if (!msgdata) {
@@ -124,13 +131,16 @@ static int do_encode(const char *in_path, const char *out_path,
             free(msgdata);
         return 3;
     }
-    size_t klen = key ? strlen(key) : 0;
     embed_fn fn = NULL;
     switch (detect_format(in, in_len)) {
-    case FMT_BMP:  fn = bmp_embed;  break;
-    case FMT_PNG:  fn = png_embed;  break;
-    case FMT_GIF:  fn = gif_embed;  break;
-    case FMT_JPEG: fn = jpeg_embed; break;
+    case FMT_BMP:    fn = bmp_embed;    break;
+    case FMT_PNG:    fn = png_embed;    break;
+    case FMT_GIF:    fn = gif_embed;    break;
+    case FMT_JPEG:   fn = jpeg_embed;   break;
+    case FMT_NETPBM: fn = ppm_embed;    break;
+    case FMT_TGA:    fn = tga_embed;    break;
+    case FMT_TIFF:   fn = tiff_embed;   break;
+    case FMT_ICO:    fn = ico_embed;    break;
     default:
         fprintf(stderr, "error: unsupported format\n");
         free(in);
@@ -140,7 +150,7 @@ static int do_encode(const char *in_path, const char *out_path,
     }
     unsigned char *out = NULL;
     size_t out_len = 0;
-    int rc = fn(in, in_len, msgdata, msg_len, (const unsigned char *)key, klen, &out, &out_len);
+    int rc = fn(in, in_len, msgdata, msg_len, key, klen, enc_key, &out, &out_len);
     if (msgdata != (unsigned char *)msg)
         free(msgdata);
     if (rc != 0) {
@@ -154,18 +164,22 @@ static int do_encode(const char *in_path, const char *out_path,
     return w ? 3 : 0;
 }
 
-static int do_decode(const char *in_path, const char *key) {
+static int do_decode(const char *in_path, const unsigned char *key, size_t klen,
+                     const unsigned char *enc_key) {
     size_t in_len;
     unsigned char *in = read_file(in_path, &in_len);
     if (!in)
         return 3;
-    size_t klen = key ? strlen(key) : 0;
     extract_fn fn = NULL;
     switch (detect_format(in, in_len)) {
-    case FMT_BMP:  fn = bmp_extract;  break;
-    case FMT_PNG:  fn = png_extract;  break;
-    case FMT_GIF:  fn = gif_extract;  break;
-    case FMT_JPEG: fn = jpeg_extract; break;
+    case FMT_BMP:    fn = bmp_extract;    break;
+    case FMT_PNG:    fn = png_extract;    break;
+    case FMT_GIF:    fn = gif_extract;    break;
+    case FMT_JPEG:   fn = jpeg_extract;   break;
+    case FMT_NETPBM: fn = ppm_extract;    break;
+    case FMT_TGA:    fn = tga_extract;    break;
+    case FMT_TIFF:   fn = tiff_extract;   break;
+    case FMT_ICO:    fn = ico_extract;    break;
     default:
         fprintf(stderr, "error: unsupported format\n");
         free(in);
@@ -173,7 +187,7 @@ static int do_decode(const char *in_path, const char *key) {
     }
     unsigned char *msg = NULL;
     size_t msg_len = 0;
-    int rc = fn(in, in_len, (const unsigned char *)key, klen, &msg, &msg_len);
+    int rc = fn(in, in_len, key, klen, enc_key, &msg, &msg_len);
     free(in);
     if (rc == 1) {
         fprintf(stderr, "no message found (clean image or wrong key)\n");
@@ -187,6 +201,37 @@ static int do_decode(const char *in_path, const char *key) {
     return 0;
 }
 
+static int do_capacity(const char *in_path) {
+    size_t in_len;
+    unsigned char *in = read_file(in_path, &in_len);
+    if (!in)
+        return 3;
+    capacity_fn fn = NULL;
+    switch (detect_format(in, in_len)) {
+    case FMT_BMP:    fn = bmp_capacity;    break;
+    case FMT_PNG:    fn = png_capacity;    break;
+    case FMT_GIF:    fn = gif_capacity;    break;
+    case FMT_JPEG:   fn = jpeg_capacity;   break;
+    case FMT_NETPBM: fn = ppm_capacity;    break;
+    case FMT_TGA:    fn = tga_capacity;    break;
+    case FMT_TIFF:   fn = tiff_capacity;   break;
+    case FMT_ICO:    fn = ico_capacity;    break;
+    default:
+        fprintf(stderr, "error: unsupported format\n");
+        free(in);
+        return 3;
+    }
+    size_t bytes = 0;
+    int rc = fn(in, in_len, &bytes);
+    free(in);
+    if (rc != 0)
+        return 3;
+    printf("%zu\n", bytes);
+    return 0;
+}
+
+static const unsigned char PBKDF2_SALT[16] = "sten-pbkdf2-salt";
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         usage(stderr);
@@ -198,24 +243,27 @@ int main(int argc, char **argv) {
         return 0;
     }
     const char *in_path = NULL, *out_path = NULL, *key = NULL, *msg = NULL, *msgfile = NULL;
+    const char *pass = NULL;
 
     static struct option lopts[] = {
-        { "input",   required_argument, 0, 'i' },
-        { "output",  required_argument, 0, 'o' },
-        { "message", required_argument, 0, 'm' },
-        { "file",    required_argument, 0, 'f' },
-        { "key",     required_argument, 0, 'k' },
-        { "help",    no_argument,       0, 'h' },
+        { "input",      required_argument, 0, 'i' },
+        { "output",     required_argument, 0, 'o' },
+        { "message",    required_argument, 0, 'm' },
+        { "file",       required_argument, 0, 'f' },
+        { "key",        required_argument, 0, 'k' },
+        { "passphrase", required_argument, 0, 'p' },
+        { "help",       no_argument,       0, 'h' },
         { 0, 0, 0, 0 }
     };
     int c;
-    while ((c = getopt_long(argc - 1, argv + 1, "i:o:m:f:k:h", lopts, NULL)) != -1) {
+    while ((c = getopt_long(argc - 1, argv + 1, "i:o:m:f:k:p:h", lopts, NULL)) != -1) {
         switch (c) {
         case 'i': in_path = optarg;  break;
         case 'o': out_path = optarg; break;
         case 'm': msg = optarg;      break;
         case 'f': msgfile = optarg;  break;
         case 'k': key = optarg;      break;
+        case 'p': pass = optarg;     break;
         case 'h': usage(stdout);     return 0;
         default:  usage(stderr);     return 2;
         }
@@ -224,20 +272,47 @@ int main(int argc, char **argv) {
         fprintf(stderr, "error: use only one of -m or -f\n");
         return 2;
     }
+    if (key && pass) {
+        fprintf(stderr, "error: use only one of -k or -p\n");
+        return 2;
+    }
+
+    unsigned char key32[32];
+    const unsigned char *kptr = NULL;
+    size_t klen = 0;
+    const unsigned char *enc_key = NULL;
+    if (pass) {
+        pbkdf2_sha256((const unsigned char *)pass, strlen(pass),
+                      PBKDF2_SALT, sizeof(PBKDF2_SALT),
+                      STEN_PBKDF2_ITERS, key32, sizeof(key32));
+        kptr = key32;
+        klen = sizeof(key32);
+        enc_key = key32;
+    } else if (key) {
+        kptr = (const unsigned char *)key;
+        klen = strlen(key);
+    }
 
     if (!strcmp(cmd, "encode")) {
         if (!in_path || !out_path || (!msg && !msgfile && isatty(fileno(stdin)))) {
             usage(stderr);
             return 2;
         }
-        return do_encode(in_path, out_path, msg, msgfile, key);
+        return do_encode(in_path, out_path, msg, msgfile, kptr, klen, enc_key);
     }
     if (!strcmp(cmd, "decode")) {
         if (!in_path) {
             usage(stderr);
             return 2;
         }
-        return do_decode(in_path, key);
+        return do_decode(in_path, kptr, klen, enc_key);
+    }
+    if (!strcmp(cmd, "capacity")) {
+        if (!in_path) {
+            usage(stderr);
+            return 2;
+        }
+        return do_capacity(in_path);
     }
     usage(stderr);
     return 2;

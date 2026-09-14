@@ -64,7 +64,8 @@ static unsigned char *bmp_allowed(size_t stride, size_t rowbytes, size_t rows) {
 }
 
 int bmp_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t msg_len,
-              const unsigned char *key, size_t key_len, unsigned char **out, size_t *out_len) {
+              const unsigned char *key, size_t key_len, const unsigned char *enc_key,
+              unsigned char **out, size_t *out_len) {
     unsigned char *pixels;
     size_t pix_len, stride, rb, rows;
     if (bmp_parse(in, in_len, &pixels, &pix_len, &stride, &rb, &rows))
@@ -75,7 +76,7 @@ int bmp_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t
         return -1;
     }
     carrier_t c = { pixels, pix_len, allowed };
-    int rc = scatter_embed(&c, pixels, pix_len, msg, msg_len, key, key_len, 3);
+    int rc = scatter_embed_ex(&c, pixels, pix_len, msg, msg_len, key, key_len, 3, enc_key);
     free(allowed);
     if (rc == -1) {
         fprintf(stderr, "error: message too large for this image\n");
@@ -91,7 +92,7 @@ int bmp_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t
 }
 
 int bmp_extract(unsigned char *in, size_t in_len, const unsigned char *key, size_t key_len,
-                unsigned char **msg, size_t *msg_len) {
+                const unsigned char *enc_key, unsigned char **msg, size_t *msg_len) {
     unsigned char *pixels;
     size_t pix_len, stride, rb, rows;
     if (bmp_parse(in, in_len, &pixels, &pix_len, &stride, &rb, &rows))
@@ -100,7 +101,21 @@ int bmp_extract(unsigned char *in, size_t in_len, const unsigned char *key, size
     if (!allowed)
         return -1;
     carrier_t c = { pixels, pix_len, allowed };
-    int rc = scatter_auto_extract(&c, pixels, pix_len, key, key_len, msg, msg_len);
+    int rc = scatter_auto_extract_ex(&c, pixels, pix_len, key, key_len, enc_key, msg, msg_len);
     free(allowed);
     return rc;
+}
+
+int bmp_capacity(const unsigned char *in, size_t in_len, size_t *bytes) {
+    unsigned char *pixels;
+    size_t pix_len, stride, rb, rows;
+    if (bmp_parse((unsigned char *)in, in_len, &pixels, &pix_len, &stride, &rb, &rows))
+        return -1;
+    unsigned char *allowed = bmp_allowed(stride, rb, rows);
+    if (!allowed)
+        return -1;
+    carrier_t c = { pixels, pix_len, allowed };
+    *bytes = scatter_msg_capacity(&c, 3);
+    free(allowed);
+    return 0;
 }
