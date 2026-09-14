@@ -138,3 +138,69 @@ int jpeg_capacity(const unsigned char *in, size_t in_len, size_t *bytes) {
     *bytes = (65533 / 4) > 13 ? (65533 / 4) - 13 : 0;
     return 0;
 }
+
+/* Scans entropy-structure markers to locate SOF and its dimensions. */
+static int jpeg_scan_sof(const unsigned char *in, size_t len,
+                         unsigned *w, unsigned *h, unsigned *components) {
+    size_t p = 2;
+    while (p + 1 < len) {
+        if (in[p] != 0xFF) {
+            p++;
+            continue;
+        }
+        /* skip runs of 0xFF fill bytes */
+        while (p < len && in[p] == 0xFF)
+            p++;
+        if (p >= len)
+            break;
+        unsigned char m = in[p++];
+        if (m == 0xD9 || m == 0xD8)
+            break;
+        if (m == 0x01)
+            continue;
+        if (m >= 0xD0 && m <= 0xD7)
+            continue;
+        if (m == 0xDA) {
+            while (p + 1 < len) {
+                if (in[p] == 0xFF && in[p + 1] != 0x00 &&
+                    !(in[p + 1] >= 0xD0 && in[p + 1] <= 0xD7))
+                    break;
+                p++;
+            }
+            continue;
+        }
+        if (p + 2 > len)
+            break;
+        uint32_t l = ((uint32_t)in[p] << 8) | in[p + 1];
+        if (l < 2 || (uint64_t)p + l > len)
+            break;
+        if (m >= 0xC0 && m <= 0xCF && m != 0xC4 && m != 0xC8 && m != 0xCC) {
+            if (l >= 8) {
+                *h = ((unsigned)in[p + 3] << 8) | in[p + 4];
+                *w = ((unsigned)in[p + 5] << 8) | in[p + 6];
+                *components = in[p + 7];
+                return 1;
+            }
+            return 0;
+        }
+        p += l;
+    }
+    return 0;
+}
+
+int jpeg_inspect(const unsigned char *in, size_t in_len, sten_info_t *info) {
+    if (in_len < 4 || in[0] != 0xFF || in[1] != 0xD8)
+        return -1;
+    unsigned w = 0, h = 0, comp = 0;
+    info->w = 0;
+    info->h = 0;
+    info->channels = 3;
+    info->bits = 8;
+    info->has_dims = jpeg_scan_sof(in, in_len, &w, &h, &comp);
+    if (info->has_dims) {
+        info->w = (long)w;
+        info->h = (long)h;
+        info->channels = (int)comp;
+    }
+    return 0;
+}

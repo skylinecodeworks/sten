@@ -48,11 +48,25 @@ fuzz-san: clean
 
 fuzz: tools/fuzz
 
+bench: $(BIN) tools/gen
+	sh tools/bench.sh
+
 test: $(BIN) tools/gen $(UNIT) tools/fuzz
 	sh tests/run.sh
+
+PREFIX  ?= /usr/local
+MANDIR  ?= $(PREFIX)/share/man
+
+install: $(BIN)
+	install -d $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(MANDIR)/man1
+	install -m 0755 $(BIN) $(DESTDIR)$(PREFIX)/bin/$(BIN)
+	install -m 0644 docs/sten.1 $(DESTDIR)$(MANDIR)/man1/sten.1
+
+uninstall:
+	rm -f $(DESTDIR)$(PREFIX)/bin/$(BIN) $(DESTDIR)$(MANDIR)/man1/sten.1
 
 clean:
 	rm -f $(OBJ) $(BIN) tools/gen $(UNIT) tools/fuzz
 	rm -rf tests/build
 
-.PHONY: all test clean fuzz fuzz-san test-san
+.PHONY: all test clean fuzz bench fuzz-san test-san install uninstall

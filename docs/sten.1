@@ -1,0 +1,143 @@
+.TH STEN 1 "September 2026" "sten 2.0" "User Commands"
+.SH NAME
+sten \- ScatterBit steganography for images (pure C, no libraries)
+.SH SYNOPSIS
+.B sten encode
+.RI \-i " image" " \-o " output
+.RB "(\-m " text " | \-f " file )
+.RB "[ \-k " key " | \-p " passphrase ]
+.br
+.B sten decode
+.RI \-i " image"
+.RB "[ \-k " key " | \-p " passphrase ]
+.br
+.B sten capacity
+.RI \-i " image
+.br
+.B sten inspect
+.RI \-i " image
+.PP
+.B sten
+.RB "\-h\fR | \fB\-\-help"\fR |
+.B "\-V\fR | \fB\-\-version"\fR
+.SH DESCRIPTION
+.B sten
+hides a message inside an image by modifying its least significant bytes
+using a pseudo-random ScatterBit walk, so the payload is spread over the
+whole carrier. The modified image keeps its format and stays visually
+unchanged. It is written in pure C with no external libraries.
+.PP
+Supported carrier formats:
+.BR BMP ", " PNG ", " GIF ", " JPEG ", " PNM/PAM ", " TGA ", " TIFF ", " ICO .
+For formats that save size explicitly (PNG, JPEG, PNM/PAM, TGA, TIFF, ICO)
+the pixel data is never re-encoded; the original bytes are reused, splicing
+new chunks in when needed. JPEG files are never recompressed: messages ride
+in a new or existing COM (comment) segment.
+.SH COMMANDS
+.TP
+.B encode
+Hides
+.I text
+(option
+.B \-m
+or
+.B \-f
+for a file; stdin when both are absent and stdin is not a terminal) inside
+.RI image
+and writes the result to
+.I output
+(options
+.BR \-i ", " \-o ).
+.TP
+.B decode
+Extracts the message from
+.RI image
+and prints it to stdout. Exit status 1 means the image is clean or the
+wrong key was used.
+.TP
+.B capacity
+Prints the number of message bytes
+.RI image
+can hold.
+.TP
+.B inspect
+Prints the format, dimensions, color layout and capacity of
+.IR image .
+.SH OPTIONS
+.TP
+.BI "\-i, \-\-input " image
+Input image.
+.TP
+.BI "\-o, \-\-output " image
+Output image
+.RB ( encode
+only).
+.TP
+.BI "\-m, \-\-message " text
+Text message to hide.
+.TP
+.BI "\-f, \-\-file " file
+Read the message from a file.
+.TP
+.BI "\-k, \-\-key " key
+Optional key. It only derives the ScatterBit path (a seed); it does not
+encrypt the payload.
+.TP
+.BI "\-p, \-\-passphrase " passphrase
+Optional passphrase. Derives a bit path and encrypts the payload with
+ChaCha20, itself keyed by PBKDF2\-HMAC\-SHA256. With
+.B \-p
+the length of the hidden message is also obfuscated (a fixed-size random
+padding, stored length, decrypted payload and a checksum are hidden).
+.TP
+.BR "\-v, \-\-verbose"
+Print details about the detected format to standard error.
+.TP
+.BR "\-h, \-\-help"
+Show help and exit.
+.TP
+.BR "\-V, \-\-version"
+Print the version and exit.
+.PP
+Exactly one of
+.B \-m
+and
+.B \-f
+may be used; exactly one of
+.B \-k
+and
+.B \-p
+may be used.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+No message found (clean image or wrong key).
+.TP
+.B 2
+Usage error.
+.TP
+.B 3
+Operational error (unreadable/unsupported/corrupt image, message too large,
+I/O failure).
+.SH SECURITY
+.I sten
+is not encryption. Anyone who knows the image can try to extract the
+payload; use
+.B \-p
+when the message must be protected, and strong keys when deriving paths is
+sensitive. The COM-only JPEG backend keeps pixels untouched, so capacity is
+unrelated to image size.
+.SH FILES
+.TP
+.I docs/sten.1
+This manual page.
+.SH SEE ALSO
+.BR make (1).
+.PP
+Source repository and the ROADMAP with the expected \\fBCompresión real\\fR
+efforts: hide the message, then deflate it before hiding; or compress the
+ZIGZAG stream. Run \\fBmake test\\fR, \\fBmake fuzz-san\\fR and
+\\fBmake test-san\\fR for verification.

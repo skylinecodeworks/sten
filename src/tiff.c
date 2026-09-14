@@ -28,7 +28,8 @@ static unsigned long g_ulong(const unsigned char *d) {
 }
 
 static int tiff_parse(const unsigned char *in, size_t len,
-                      unsigned char **pixels, size_t *pix_len) {
+                      unsigned char **pixels, size_t *pix_len,
+                      long *w_out, long *h_out) {
     if (len < 8 || !memcmp(in, "MM", 2)) {
         fprintf(stderr, "error: only little-endian TIFF is supported\n");
         return -1;
@@ -108,13 +109,16 @@ static int tiff_parse(const unsigned char *in, size_t len,
         fprintf(stderr, "error: TIFF is missing required fields\n");
         return -1;
     }
-    (void)w; (void)h;
     if (offs > len || cnt > len - offs) {
         fprintf(stderr, "error: TIFF strip out of range\n");
         return -1;
     }
     *pixels = (unsigned char *)in + offs;
     *pix_len = (size_t)cnt;
+    if (w_out)
+        *w_out = (long)w;
+    if (h_out)
+        *h_out = (long)h;
     return 0;
 }
 
@@ -123,7 +127,7 @@ int tiff_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_
                unsigned char **out, size_t *out_len) {
     unsigned char *pixels;
     size_t pix_len;
-    if (tiff_parse(in, in_len, &pixels, &pix_len))
+    if (tiff_parse(in, in_len, &pixels, &pix_len, NULL, NULL))
         return -1;
     carrier_t c = { pixels, pix_len, NULL };
     int rc = scatter_embed_ex(&c, pixels, pix_len, msg, msg_len, key, key_len, 3, enc_key);
@@ -144,7 +148,7 @@ int tiff_extract(unsigned char *in, size_t in_len, const unsigned char *key, siz
                  const unsigned char *enc_key, unsigned char **msg, size_t *msg_len) {
     unsigned char *pixels;
     size_t pix_len;
-    if (tiff_parse(in, in_len, &pixels, &pix_len))
+    if (tiff_parse(in, in_len, &pixels, &pix_len, NULL, NULL))
         return -1;
     carrier_t c = { pixels, pix_len, NULL };
     return scatter_auto_extract_ex(&c, pixels, pix_len, key, key_len, enc_key, msg, msg_len);
@@ -153,9 +157,22 @@ int tiff_extract(unsigned char *in, size_t in_len, const unsigned char *key, siz
 int tiff_capacity(const unsigned char *in, size_t in_len, size_t *bytes) {
     unsigned char *pixels;
     size_t pix_len;
-    if (tiff_parse(in, in_len, &pixels, &pix_len))
+    if (tiff_parse(in, in_len, &pixels, &pix_len, NULL, NULL))
         return -1;
     carrier_t c = { pixels, pix_len, NULL };
     *bytes = scatter_msg_capacity(&c, 3);
+    return 0;
+}
+int tiff_inspect(const unsigned char *in, size_t in_len, sten_info_t *info) {
+    unsigned char *pixels;
+    size_t pix_len;
+    long w = 0, h = 0;
+    if (tiff_parse(in, in_len, &pixels, &pix_len, &w, &h))
+        return -1;
+    info->w = w;
+    info->h = h;
+    info->channels = 3;
+    info->bits = 8;
+    info->has_dims = 1;
     return 0;
 }

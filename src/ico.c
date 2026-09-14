@@ -128,3 +128,21 @@ int ico_capacity(const unsigned char *in, size_t in_len, size_t *bytes) {
     (void)idx;
     return png_capacity(png, png_len, bytes);
 }
+int ico_inspect(const unsigned char *in, size_t in_len, sten_info_t *info) {
+    unsigned entry_idx;
+    unsigned char *png;
+    size_t png_len;
+    if (ico_find_png(in, in_len, &entry_idx, &png, &png_len))
+        return -1;
+    uint32_t w, h;
+    unsigned ct;
+    info->has_dims = 0;
+    if (png_info(png, png_len, &w, &h, &ct) == 0) {
+        info->w = (long)w;
+        info->h = (long)h;
+        info->channels = ct == 6 ? 4 : 3;
+        info->bits = 8;
+        info->has_dims = 1;
+    }
+    return 0;
+}

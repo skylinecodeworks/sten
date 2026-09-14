@@ -5,7 +5,8 @@
 #include <string.h>
 
 static int gif_parse(const unsigned char *in, size_t len,
-                     unsigned char **palette, size_t *pal_len) {
+                     unsigned char **palette, size_t *pal_len,
+                     unsigned *w_out, unsigned *h_out) {
     if (len < 13) {
         fprintf(stderr, "error: invalid GIF\n");
         return -1;
@@ -23,6 +24,10 @@ static int gif_parse(const unsigned char *in, size_t len,
     }
     *palette = (unsigned char *)in + 13;
     *pal_len = plen;
+    if (w_out)
+        *w_out = (unsigned)in[6] | ((unsigned)in[7] << 8);
+    if (h_out)
+        *h_out = (unsigned)in[8] | ((unsigned)in[9] << 8);
     return 0;
 }
 
@@ -31,7 +36,7 @@ int gif_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t
               unsigned char **out, size_t *out_len) {
     unsigned char *palette;
     size_t pal_len;
-    if (gif_parse(in, in_len, &palette, &pal_len))
+    if (gif_parse(in, in_len, &palette, &pal_len, NULL, NULL))
         return -1;
     carrier_t c = { palette, pal_len, NULL };
     int rc = scatter_embed_ex(&c, palette, pal_len, msg, msg_len, key, key_len, 2, enc_key);
@@ -52,7 +57,7 @@ int gif_extract(unsigned char *in, size_t in_len, const unsigned char *key, size
                 const unsigned char *enc_key, unsigned char **msg, size_t *msg_len) {
     unsigned char *palette;
     size_t pal_len;
-    if (gif_parse(in, in_len, &palette, &pal_len))
+    if (gif_parse(in, in_len, &palette, &pal_len, NULL, NULL))
         return -1;
     carrier_t c = { palette, pal_len, NULL };
     return scatter_auto_extract_ex(&c, palette, pal_len, key, key_len, enc_key, msg, msg_len);
@@ -61,9 +66,24 @@ int gif_extract(unsigned char *in, size_t in_len, const unsigned char *key, size
 int gif_capacity(const unsigned char *in, size_t in_len, size_t *bytes) {
     unsigned char *palette;
     size_t pal_len;
-    if (gif_parse(in, in_len, &palette, &pal_len))
+    if (gif_parse(in, in_len, &palette, &pal_len, NULL, NULL))
         return -1;
     carrier_t c = { palette, pal_len, NULL };
     *bytes = scatter_msg_capacity(&c, 2);
+    return 0;
+}
+
+int gif_inspect(const unsigned char *in, size_t in_len, sten_info_t *info) {
+    unsigned char *palette;
+    size_t pal_len;
+    unsigned w = 0, h = 0;
+    if (gif_parse(in, in_len, &palette, &pal_len, &w, &h))
+        return -1;
+    (void)pal_len;
+    info->w = (long)w;
+    info->h = (long)h;
+    info->channels = 3;
+    info->bits = 8;
+    info->has_dims = 1;
     return 0;
 }

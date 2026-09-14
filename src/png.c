@@ -492,3 +492,43 @@ int png_capacity(const unsigned char *in, size_t in_len, size_t *bytes) {
     free(iend);
     return 0;
 }
+
+int png_info(const unsigned char *in, size_t in_len, uint32_t *w, uint32_t *h,
+             unsigned *color_type) {
+    static const unsigned char sig[8] = { 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A };
+    if (in_len < 33 || memcmp(in, sig, 8)) {
+        fprintf(stderr, "error: invalid PNG\n");
+        return -1;
+    }
+    uint32_t clen = rd32be(in + 8);
+    if (memcmp(in + 12, "IHDR", 4) || clen != 13) {
+        fprintf(stderr, "error: invalid PNG\n");
+        return -1;
+    }
+    uint32_t ww = rd32be(in + 16);
+    uint32_t hh = rd32be(in + 20);
+    unsigned ct = in[25];
+    if (ww == 0 || hh == 0) {
+        fprintf(stderr, "error: invalid PNG dimensions\n");
+        return -1;
+    }
+    *w = ww;
+    *h = hh;
+    *color_type = ct;
+    return 0;
+}
+
+int png_inspect(const unsigned char *in, size_t in_len, sten_info_t *info) {
+    uint32_t w, h;
+    unsigned ct;
+    if (png_info(in, in_len, &w, &h, &ct) == 0) {
+        info->w = (long)w;
+        info->h = (long)h;
+        info->channels = ct == 6 ? 4 : 3;
+        info->bits = 8;
+        info->has_dims = 1;
+    } else {
+        info->has_dims = 0;
+    }
+    return 0;
+}

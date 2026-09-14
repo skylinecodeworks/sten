@@ -12,7 +12,8 @@ static uint32_t rd32le(const unsigned char *p) {
 
 static int bmp_parse(const unsigned char *in, size_t len,
                      unsigned char **pixels, size_t *pix_len,
-                     size_t *stride, size_t *rowbytes, size_t *rows) {
+                     size_t *stride, size_t *rowbytes, size_t *rows,
+                     uint32_t *bpp_out, long *w_out, long *h_out) {
     if (len < 54 || in[0] != 'B' || in[1] != 'M') {
         fprintf(stderr, "error: invalid BMP\n");
         return -1;
@@ -60,6 +61,12 @@ static int bmp_parse(const unsigned char *in, size_t len,
     *stride = st;
     *rowbytes = rb;
     *rows = (size_t)h;
+    if (bpp_out)
+        *bpp_out = bpp;
+    if (w_out)
+        *w_out = (long)w;
+    if (h_out)
+        *h_out = (long)h;
     return 0;
 }
 
@@ -81,7 +88,7 @@ int bmp_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t
               unsigned char **out, size_t *out_len) {
     unsigned char *pixels;
     size_t pix_len, stride, rb, rows;
-    if (bmp_parse(in, in_len, &pixels, &pix_len, &stride, &rb, &rows))
+    if (bmp_parse(in, in_len, &pixels, &pix_len, &stride, &rb, &rows, NULL, NULL, NULL))
         return -1;
     unsigned char *allowed = bmp_allowed(stride, rb, rows);
     if (!allowed) {
@@ -108,7 +115,7 @@ int bmp_extract(unsigned char *in, size_t in_len, const unsigned char *key, size
                 const unsigned char *enc_key, unsigned char **msg, size_t *msg_len) {
     unsigned char *pixels;
     size_t pix_len, stride, rb, rows;
-    if (bmp_parse(in, in_len, &pixels, &pix_len, &stride, &rb, &rows))
+    if (bmp_parse(in, in_len, &pixels, &pix_len, &stride, &rb, &rows, NULL, NULL, NULL))
         return -1;
     unsigned char *allowed = bmp_allowed(stride, rb, rows);
     if (!allowed)
@@ -122,7 +129,7 @@ int bmp_extract(unsigned char *in, size_t in_len, const unsigned char *key, size
 int bmp_capacity(const unsigned char *in, size_t in_len, size_t *bytes) {
     unsigned char *pixels;
     size_t pix_len, stride, rb, rows;
-    if (bmp_parse((unsigned char *)in, in_len, &pixels, &pix_len, &stride, &rb, &rows))
+    if (bmp_parse((unsigned char *)in, in_len, &pixels, &pix_len, &stride, &rb, &rows, NULL, NULL, NULL))
         return -1;
     unsigned char *allowed = bmp_allowed(stride, rb, rows);
     if (!allowed)
@@ -130,5 +137,20 @@ int bmp_capacity(const unsigned char *in, size_t in_len, size_t *bytes) {
     carrier_t c = { pixels, pix_len, allowed };
     *bytes = scatter_msg_capacity(&c, 3);
     free(allowed);
+    return 0;
+}
+
+int bmp_inspect(const unsigned char *in, size_t in_len, sten_info_t *info) {
+    unsigned char *pixels;
+    size_t pix_len, stride, rb, rows;
+    uint32_t bpp;
+    long w = 0, h = 0;
+    if (bmp_parse(in, in_len, &pixels, &pix_len, &stride, &rb, &rows, &bpp, &w, &h))
+        return -1;
+    info->w = w;
+    info->h = h;
+    info->channels = (int)bpp / 8;
+    info->bits = 8;
+    info->has_dims = 1;
     return 0;
 }

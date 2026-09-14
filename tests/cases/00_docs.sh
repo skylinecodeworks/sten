@@ -21,12 +21,15 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 assert_file_exists "$ROOT/README.md" "README exists"
 assert_file_exists "$ROOT/ROADMAP.md" "ROADMAP exists"
 assert_file_exists "$ROOT/Makefile" "Makefile exists"
+assert_file_exists "$ROOT/docs/sten.1" "man page exists"
 
 assert_file_contains "README documents usage" "$ROOT/README.md" "sten encode -i image -o output"
 assert_file_contains "README documents options" "$ROOT/README.md" "optional key (derives the bit path)"
 assert_file_contains "README documents exit codes" "$ROOT/README.md" "no message found (clean image or wrong key)"
 assert_file_contains "README documents JPEG scope" "$ROOT/README.md" "does not touch pixels"
 assert_file_contains "README documents formats" "$ROOT/README.md" "GIF"
+assert_file_contains "README documents install" "$ROOT/README.md" "make install"
+assert_file_contains "man page documents inspect" "$ROOT/docs/sten.1" "inspect"
 
 assert_file_contains "ROADMAP defines phase 1 compression" "$ROOT/ROADMAP.md" "compresión real"
 assert_file_contains "ROADMAP defines phase 2 crypto" "$ROOT/ROADMAP.md" "ChaCha20"
