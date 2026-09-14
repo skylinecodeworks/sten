@@ -161,6 +161,59 @@ static void gen_png_ex(const char *path, int w, int h, int color_type) {
     free(raw);
 }
 
+/* Horizontal RGB gradient: very compressible image for phase 1. */
+static void gen_png_flat(const char *path, int w, int h) {
+    size_t stride = 1 + (size_t)w * 3;
+    size_t rawlen = stride * (size_t)h;
+    unsigned char *raw = (unsigned char *)malloc(rawlen);
+    if (!raw)
+        exit(1);
+    for (int y = 0; y < h; y++) {
+        size_t row = (size_t)y * stride;
+        raw[row] = 0;
+        for (int x = 0; x < w; x++) {
+            size_t o = row + 1 + (size_t)x * 3;
+            raw[o] = (unsigned char)((unsigned)(x * 255) / (unsigned)w);
+            raw[o + 1] = (unsigned char)((unsigned)(x * 63) / (unsigned)w);
+            raw[o + 2] = (unsigned char)((unsigned)((w - 1 - x) * 255) / (unsigned)w);
+        }
+    }
+    unsigned char *z = NULL;
+    size_t zlen = 0;
+    if (deflate_zlib_stored(raw, rawlen, &z, &zlen))
+        exit(1);
+
+    size_t total = 8 + 25 + 12 + zlen + 12;
+    unsigned char *d = (unsigned char *)calloc(1, total);
+    if (!d)
+        exit(1);
+    size_t n = 0;
+    static const unsigned char sig[8] = { 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A };
+    memcpy(d, sig, 8);
+    n = 8;
+    wr32be(d + n, 13);
+    memcpy(d + n + 4, "IHDR", 4);
+    wr32be(d + n + 8, (uint32_t)w);
+    wr32be(d + n + 12, (uint32_t)h);
+    d[n + 16] = 8;
+    d[n + 17] = 2;
+    wr32be(d + n + 21, crc32(d + n + 4, 17));
+    n += 25;
+    wr32be(d + n, (uint32_t)zlen);
+    memcpy(d + n + 4, "IDAT", 4);
+    memcpy(d + n + 8, z, zlen);
+    wr32be(d + n + 8 + zlen, crc32(d + n + 4, 4 + zlen));
+    n += 12 + zlen;
+    wr32be(d + n, 0);
+    memcpy(d + n + 4, "IEND", 4);
+    wr32be(d + n + 8, crc32(d + n + 4, 4));
+    n += 12;
+    write_all(path, d, n);
+    free(d);
+    free(z);
+    free(raw);
+}
+
 /* PNG solo con firma + IHDR: sirve para probar el rechazo por bit depth/color type. */
 static void gen_png_header(const char *path, int w, int h, int bit_depth, int color_type) {
     unsigned char d[8 + 25];
@@ -299,6 +352,8 @@ int main(int argc, char **argv) {
     gen_png_header(path, 16, 16, 8, 3);
     snprintf(path, sizeof(path), "%s/gray16.png", argv[1]);
     gen_png_header(path, 16, 16, 16, 0);
+    snprintf(path, sizeof(path), "%s/flat.png", argv[1]);
+    gen_png_flat(path, 64, 64);
 
     snprintf(path, sizeof(path), "%s/test.gif", argv[1]);
     gen_gif(path);

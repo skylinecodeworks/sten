@@ -19,7 +19,7 @@ assert_rc "PNG no key on keyed message -> 1" 1 "$BIN" decode -i "$D/keyed.png"
 assert_rc "PNG paletted rejected -> 3" 3 "$BIN" encode -i "$D/pal.png" -o "$D/x.png" -m hola
 assert_rc "PNG 16-bit rejected -> 3" 3 "$BIN" encode -i "$D/gray16.png" -o "$D/x.png" -m hola
 
-dd if=/dev/zero bs=60000 count=1 2>/dev/null | tr '\0' 'A' > "$D/big.txt"
+head -c 60000 /dev/urandom > "$D/big.txt"
 assert_rc "PNG oversized message -> 3" 3 "$BIN" encode -i "$D/test.png" -o "$D/x.png" -f "$D/big.txt"
 
 "$BIN" encode -i "$D/rgba.png" -o "$D/imgchk.png" -m "$M" >/dev/null 2>&1

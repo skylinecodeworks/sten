@@ -63,7 +63,7 @@ int jpeg_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_
         fprintf(stderr, "error: invalid JPEG\n");
         return -1;
     }
-    size_t plen = 12 + msg_len;
+    size_t plen = 13 + msg_len;
     if (plen * 4 > 65533) {
         fprintf(stderr, "error: message too large for JPEG (max ~16 KB)\n");
         return -1;

@@ -1,9 +1,12 @@
 #include "scatter.h"
+#include "deflate.h"
 #include "util.h"
 #include <stdlib.h>
 #include <string.h>
 
-#define HDR 12
+#define HDR_V1 12
+#define HDR_V2 13
+#define FLAG_COMP 0x01u
 #define MAX_MSG (16u * 1024u * 1024u)
 
 /* Invariant fingerprint: only bits 3..7 (bits 0..2 are never modified). */
@@ -55,27 +58,59 @@ static int pos_ok(const carrier_t *c, const unsigned char *used, size_t i) {
     return used[i] < (unsigned char)depth_at(c->data, c->len, i);
 }
 
-int scatter_embed(carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
-                  const unsigned char *msg, size_t msg_len,
-                  const unsigned char *key, size_t key_len, int redundancy) {
+static int scatter_embed_v(carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
+                           const unsigned char *msg, size_t msg_len,
+                           const unsigned char *key, size_t key_len, int redundancy,
+                           int version) {
     if (msg_len > MAX_MSG || redundancy < 1 || redundancy > 3)
         return -2;
 
-    size_t plen = HDR + msg_len;
+    size_t hdr = (version == 1) ? HDR_V1 : HDR_V2;
+    unsigned flags = 0;
+    const unsigned char *stored = msg;
+    size_t stored_len = msg_len;
+    unsigned char *cz = NULL;
+    size_t czlen = 0;
+
+    if (version == 2 && msg_len &&
+        deflate_zlib(msg, msg_len, &cz, &czlen) == 0 && czlen < msg_len) {
+        stored = cz;
+        stored_len = czlen;
+        flags |= FLAG_COMP;
+    }
+
+    size_t plen = hdr + stored_len;
     unsigned char *payload = (unsigned char *)malloc(plen);
-    if (!payload)
+    if (!payload) {
+        free(cz);
         return -2;
-    memcpy(payload, SCATTER_MAGIC, 4);
-    payload[4] = (unsigned char)(msg_len >> 24);
-    payload[5] = (unsigned char)(msg_len >> 16);
-    payload[6] = (unsigned char)(msg_len >> 8);
-    payload[7] = (unsigned char)msg_len;
-    uint32_t ck = crc32(msg, msg_len);
-    payload[8] = (unsigned char)(ck >> 24);
-    payload[9] = (unsigned char)(ck >> 16);
-    payload[10] = (unsigned char)(ck >> 8);
-    payload[11] = (unsigned char)ck;
-    memcpy(payload + HDR, msg, msg_len);
+    }
+    if (version == 1) {
+        memcpy(payload, "SBT1", 4);
+        payload[4] = (unsigned char)(msg_len >> 24);
+        payload[5] = (unsigned char)(msg_len >> 16);
+        payload[6] = (unsigned char)(msg_len >> 8);
+        payload[7] = (unsigned char)msg_len;
+        uint32_t ck = crc32(msg, msg_len);
+        payload[8] = (unsigned char)(ck >> 24);
+        payload[9] = (unsigned char)(ck >> 16);
+        payload[10] = (unsigned char)(ck >> 8);
+        payload[11] = (unsigned char)ck;
+    } else {
+        memcpy(payload, "SBT2", 4);
+        payload[4] = (unsigned char)flags;
+        payload[5] = (unsigned char)(stored_len >> 24);
+        payload[6] = (unsigned char)(stored_len >> 16);
+        payload[7] = (unsigned char)(stored_len >> 8);
+        payload[8] = (unsigned char)stored_len;
+        uint32_t ck = crc32(stored, stored_len);
+        payload[9] = (unsigned char)(ck >> 24);
+        payload[10] = (unsigned char)(ck >> 16);
+        payload[11] = (unsigned char)(ck >> 8);
+        payload[12] = (unsigned char)ck;
+    }
+    memcpy(payload + hdr, stored, stored_len);
+    free(cz);
 
     size_t nbits = plen * 8;
     if (nbits * (size_t)redundancy > capacity(c)) {
@@ -113,6 +148,20 @@ int scatter_embed(carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
     return 0;
 }
 
+int scatter_embed(carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
+                  const unsigned char *msg, size_t msg_len,
+                  const unsigned char *key, size_t key_len, int redundancy) {
+    return scatter_embed_v(c, fpsrc, fpsrc_len, msg, msg_len, key, key_len,
+                           redundancy, 2);
+}
+
+int scatter_embed_v1(carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
+                     const unsigned char *msg, size_t msg_len,
+                     const unsigned char *key, size_t key_len, int redundancy) {
+    return scatter_embed_v(c, fpsrc, fpsrc_len, msg, msg_len, key, key_len,
+                           redundancy, 1);
+}
+
 static int extract_with_r(const carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
                           const unsigned char *key, size_t key_len, int redundancy,
                           unsigned char **msg, size_t *msg_len) {
@@ -135,6 +184,8 @@ static int extract_with_r(const carrier_t *c, const unsigned char *fpsrc, size_t
     size_t nbits = 0;
     uint32_t mlen = 0;
     int mlen_known = 0;
+    int hdr = 0;
+    unsigned flags = 0;
     int sum = 0, cnt = 0;
     int rc = 1;
 
@@ -170,38 +221,64 @@ static int extract_with_r(const carrier_t *c, const unsigned char *fpsrc, size_t
         sum = cnt = 0;
 
         if (nbits == 32) {
-            if (memcmp(payload, SCATTER_MAGIC, 4) != 0)
+            if (memcmp(payload, "SBT1", 4) == 0)
+                hdr = HDR_V1;
+            else if (memcmp(payload, "SBT2", 4) == 0)
+                hdr = HDR_V2;
+            else
                 goto done;
         }
-        if (nbits == 64) {
-            mlen = ((uint32_t)payload[4] << 24) | ((uint32_t)payload[5] << 16) |
-                   ((uint32_t)payload[6] << 8) | payload[7];
+        size_t len_bits = 8u * (size_t)hdr - 32;
+        if (mlen_known == 0 && hdr && nbits == len_bits) {
+            if (hdr == HDR_V2) {
+                flags = payload[4];
+                mlen = ((uint32_t)payload[5] << 24) | ((uint32_t)payload[6] << 16) |
+                       ((uint32_t)payload[7] << 8) | payload[8];
+            } else {
+                mlen = ((uint32_t)payload[4] << 24) | ((uint32_t)payload[5] << 16) |
+                       ((uint32_t)payload[6] << 8) | payload[7];
+            }
             if (mlen > MAX_MSG)
                 goto done;
             mlen_known = 1;
-            if (8u * (HDR + mlen) * (size_t)redundancy > cap)
+            if (8u * ((size_t)hdr + mlen) * (size_t)redundancy > cap)
                 goto done;
-            unsigned char *nd = (unsigned char *)realloc(payload, HDR + mlen);
+            unsigned char *nd = (unsigned char *)realloc(payload, (size_t)hdr + mlen);
             if (!nd) {
                 rc = -1;
                 goto done;
             }
             payload = nd;
-            pcap = HDR + mlen;
+            pcap = (size_t)hdr + mlen;
         }
-        if (mlen_known && nbits == 8u * (HDR + mlen)) {
-            uint32_t want = ((uint32_t)payload[8] << 24) | ((uint32_t)payload[9] << 16) |
-                            ((uint32_t)payload[10] << 8) | payload[11];
-            if (crc32(payload + HDR, mlen) != want)
+        if (mlen_known && nbits == 8u * ((size_t)hdr + mlen)) {
+            uint32_t want = ((uint32_t)payload[hdr - 4] << 24) |
+                            ((uint32_t)payload[hdr - 3] << 16) |
+                            ((uint32_t)payload[hdr - 2] << 8) | payload[hdr - 1];
+            if (crc32(payload + hdr, mlen) != want)
                 goto done;
-            unsigned char *m = (unsigned char *)malloc(mlen ? mlen : 1);
-            if (!m) {
-                rc = -1;
-                goto done;
+            unsigned char *m = NULL;
+            size_t mlen_o = 0;
+            if (hdr == HDR_V2 && (flags & FLAG_COMP)) {
+                if (inflate_zlib(payload + hdr, mlen, &m, &mlen_o, 0) != 0) {
+                    free(m);
+                    goto done;
+                }
+                if (mlen_o > MAX_MSG) {
+                    free(m);
+                    goto done;
+                }
+            } else {
+                m = (unsigned char *)malloc(mlen ? mlen : 1);
+                if (!m) {
+                    rc = -1;
+                    goto done;
+                }
+                memcpy(m, payload + hdr, mlen);
+                mlen_o = mlen;
             }
-            memcpy(m, payload + HDR, mlen);
             *msg = m;
-            *msg_len = mlen;
+            *msg_len = mlen_o;
             rc = 0;
             goto done;
         }

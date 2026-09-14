@@ -155,6 +155,56 @@ static void test_deflate_errors(void) {
     free(z);
 }
 
+static void test_deflate_zlib_roundtrip(size_t n, const char *label) {
+    unsigned char *data = (unsigned char *)malloc(n ? n : 1);
+    if (!data)
+        exit(2);
+    fill(data, n, (uint32_t)(n * 2654435761u + 1));
+
+    unsigned char *z = NULL;
+    size_t zlen = 0;
+    if (deflate_zlib(data, n, &z, &zlen) != 0) {
+        char m[128];
+        snprintf(m, sizeof(m), "deflate_zlib failed n=%zu", n);
+        ko(label, m);
+        free(data);
+        return;
+    }
+
+    unsigned char *out = NULL;
+    size_t olen = 0;
+    if (inflate_zlib(z, zlen, &out, &olen, n) != 0) {
+        char m[128];
+        snprintf(m, sizeof(m), "deflate_zlib inflate failed n=%zu", n);
+        ko(label, m);
+        free(z);
+        free(data);
+        return;
+    }
+    int eq = (olen == n) && (n == 0 || memcmp(out, data, n) == 0);
+    check(label, eq);
+    free(out);
+    free(z);
+    free(data);
+}
+
+static void test_deflate_zlib_compression(void) {
+    unsigned char data[10000];
+    memset(data, 'A', sizeof(data));
+    unsigned char *z = NULL;
+    size_t zlen = 0;
+    check("deflate_zlib compresses repetitive data",
+          deflate_zlib(data, sizeof(data), &z, &zlen) == 0 && zlen < 1000);
+
+    unsigned char *out = NULL;
+    size_t olen = 0;
+    check("deflate_zlib repetitive roundtrip",
+          inflate_zlib(z, zlen, &out, &olen, sizeof(data)) == 0 &&
+          olen == sizeof(data) && memcmp(out, data, sizeof(data)) == 0);
+    free(out);
+    free(z);
+}
+
 static void test_scatter(void) {
     const size_t N = 8192;
     unsigned char *carrier = (unsigned char *)malloc(N);
@@ -254,6 +304,50 @@ static void test_scatter(void) {
           scatter_embed(&small, carrier, 64, huge, 4096, NULL, 0, 3) == -1);
     free(huge);
 
+    /* Phase 1: payload compression. A carrier with ~1024 editable bits must
+     * not fit a 4000-byte raw message, but must fit it once compressed. */
+    unsigned char *cc = (unsigned char *)malloc(1024);
+    unsigned char *cf = (unsigned char *)malloc(1024);
+    if (!cc || !cf)
+        exit(2);
+    memset(cc, 0x42, 1024);
+    memcpy(cf, cc, 1024);
+    size_t big_len = 4000;
+    unsigned char *bigmsg = (unsigned char *)malloc(big_len);
+    if (!bigmsg)
+        exit(2);
+    memset(bigmsg, 'A', big_len);
+    carrier_t smallc = { cc, 1024, NULL };
+    check("scatter_embed fits only via compression",
+          scatter_embed(&smallc, cf, 1024, bigmsg, big_len, NULL, 0, 1) == 0);
+    free(bigmsg);
+
+    unsigned char *m2 = NULL;
+    size_t olen2 = 0;
+    check("scatter extracts compressed payload",
+          scatter_auto_extract(&smallc, cf, 1024, NULL, 0, &m2, &olen2) == 0 &&
+          olen2 == 4000 && m2 && memcmp(m2, "AAAAAAAAAAAAAAAAAAAA", 20) == 0);
+    free(m2);
+    free(cc);
+    free(cf);
+
+    /* Phase 1: legacy v1 (SBT1) payload must still extract. */
+    unsigned char lc[65536];
+    unsigned char lf[65536];
+    fill(lc, sizeof(lc), 0x10203040u);
+    memcpy(lf, lc, sizeof(lc));
+    const char *legacy = "legacy v1 message";
+    carrier_t lcar = { lc, sizeof(lc), NULL };
+    check("scatter_embed_v1 embeds",
+          scatter_embed_v1(&lcar, lf, sizeof(lc), (const unsigned char *)legacy,
+                           strlen(legacy), NULL, 0, 3) == 0);
+    unsigned char *lm = NULL;
+    size_t llen = 0;
+    check("scatter extracts legacy v1 payload",
+          scatter_auto_extract(&lcar, lf, sizeof(lc), NULL, 0, &lm, &llen) == 0 &&
+          llen == strlen(legacy) && memcmp(lm, legacy, llen) == 0);
+    free(lm);
+
     free(carrier);
     free(fpsrc);
 }
@@ -269,6 +363,12 @@ int main(void) {
     test_deflate_roundtrip(65535, "deflate roundtrip n=65535");
     test_deflate_roundtrip(65536, "deflate roundtrip n=65536");
     test_deflate_roundtrip(70000, "deflate roundtrip n=70000");
+    test_deflate_zlib_roundtrip(0, "deflate_zlib roundtrip n=0");
+    test_deflate_zlib_roundtrip(1, "deflate_zlib roundtrip n=1");
+    test_deflate_zlib_roundtrip(100, "deflate_zlib roundtrip n=100");
+    test_deflate_zlib_roundtrip(65536, "deflate_zlib roundtrip n=65536");
+    test_deflate_zlib_roundtrip(70000, "deflate_zlib roundtrip n=70000");
+    test_deflate_zlib_compression();
     test_deflate_errors();
 
     test_scatter();

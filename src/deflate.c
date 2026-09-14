@@ -325,3 +325,216 @@ int deflate_zlib_stored(const unsigned char *data, size_t len,
     *out_len = n;
     return 0;
 }
+
+typedef struct {
+    unsigned char *d;
+    size_t n, cap;
+    uint64_t bitbuf;
+    int nbits;
+} bitwriter_t;
+
+static int bw_reserve(bitwriter_t *w, size_t extra) {
+    if (w->n + extra <= w->cap)
+        return 0;
+    size_t ncap = w->cap ? w->cap : 1024;
+    while (ncap < w->n + extra) {
+        if (ncap > ((size_t)1 << 30))
+            return -1;
+        ncap *= 2;
+    }
+    unsigned char *nd = (unsigned char *)realloc(w->d, ncap);
+    if (!nd)
+        return -1;
+    w->d = nd;
+    w->cap = ncap;
+    return 0;
+}
+
+static int bw_bit(bitwriter_t *w, unsigned b) {
+    w->bitbuf |= (uint64_t)(b & 1u) << w->nbits;
+    if (++w->nbits == 8) {
+        if (bw_reserve(w, 1))
+            return -1;
+        w->d[w->n++] = (unsigned char)w->bitbuf;
+        w->bitbuf = 0;
+        w->nbits = 0;
+    }
+    return 0;
+}
+
+static int bw_code(bitwriter_t *w, unsigned code, int len) {
+    for (int i = len - 1; i >= 0; i--)
+        if (bw_bit(w, (code >> i) & 1u))
+            return -1;
+    return 0;
+}
+
+static const unsigned HBITS = 15;
+#define HWINDOW 32768
+
+static unsigned hash3(const unsigned char *p) {
+    unsigned h = ((unsigned)p[0] << 10) ^ ((unsigned)p[1] << 5) ^ (unsigned)p[2];
+    return h & ((1u << HBITS) - 1);
+}
+
+static void fixed_litlen(int sym, unsigned *code, int *bits) {
+    if (sym < 144) {
+        *code = 0x30u + (unsigned)sym;
+        *bits = 8;
+    } else if (sym < 256) {
+        *code = 0x190u + (unsigned)(sym - 144);
+        *bits = 9;
+    } else if (sym < 280) {
+        *code = (unsigned)(sym - 256);
+        *bits = 7;
+    } else {
+        *code = 0xC0u + (unsigned)(sym - 280);
+        *bits = 8;
+    }
+}
+
+static int emit_matches(bitwriter_t *w, size_t len, size_t dist) {
+    int s;
+    for (s = 0; s < 29; s++) {
+        unsigned base = len_base[s];
+        unsigned span = 1u << len_extra[s];
+        if (len >= (size_t)base && len <= (size_t)base + span - 1)
+            break;
+    }
+    if (s == 29)
+        return -1;
+    unsigned code;
+    int bits;
+    fixed_litlen(257 + s, &code, &bits);
+    if (bw_code(w, code, bits))
+        return -1;
+    unsigned lenx = (unsigned)len - len_base[s];
+    for (int i = 0; i < len_extra[s]; i++)
+        if (bw_bit(w, (lenx >> i) & 1u))
+            return -1;
+    int d;
+    for (d = 0; d < 30; d++) {
+        unsigned base = dist_base[d];
+        unsigned span = 1u << dist_extra[d];
+        if (dist >= (size_t)base && dist <= (size_t)base + span - 1)
+            break;
+    }
+    if (d == 30)
+        return -1;
+    if (bw_code(w, (unsigned)d, 5))
+        return -1;
+    unsigned dstx = (unsigned)dist - dist_base[d];
+    for (int i = 0; i < dist_extra[d]; i++)
+        if (bw_bit(w, (dstx >> i) & 1u))
+            return -1;
+    return 0;
+}
+
+static int deflate_fixed(const unsigned char *data, size_t len, bitwriter_t *w) {
+    if (bw_bit(w, 1))
+        return -1;
+    if (bw_bit(w, 1))
+        return -1;
+    if (bw_bit(w, 0))
+        return -1;
+    unsigned *head = (unsigned *)malloc(sizeof(unsigned) * (1u << HBITS));
+    unsigned *prev = (unsigned *)malloc(sizeof(unsigned) * (len ? len : 1));
+    if (!head || !prev) {
+        free(head);
+        free(prev);
+        return -1;
+    }
+    for (size_t i = 0; i < (1u << HBITS); i++)
+        head[i] = 0xFFFFFFFFu;
+    size_t pos = 0;
+    while (pos < len) {
+        int matched = 0;
+        if (pos + 3 <= len) {
+            unsigned h = hash3(data + pos);
+            size_t best = 0, best_dist = 0;
+            unsigned chain = 128;
+            size_t limit = pos > HWINDOW ? pos - HWINDOW : 0;
+            size_t p = head[h];
+            while (chain-- && p != 0xFFFFFFFFu && p >= limit && p < pos) {
+                size_t l = 0;
+                while (l < 258 && pos + l < len && data[p + l] == data[pos + l])
+                    l++;
+                if (l > best) {
+                    best = l;
+                    best_dist = pos - p;
+                    if (l == 258 || l >= 64)
+                        break;
+                }
+                p = prev[p];
+            }
+            prev[pos] = head[h];
+            head[h] = (unsigned)pos;
+            if (best >= 3) {
+                if (emit_matches(w, best, best_dist)) {
+                    free(head);
+                    free(prev);
+                    return -1;
+                }
+                pos += best;
+                matched = 1;
+            }
+        }
+        if (!matched) {
+            unsigned code;
+            int bits;
+            fixed_litlen(data[pos], &code, &bits);
+            if (bw_code(w, code, bits)) {
+                free(head);
+                free(prev);
+                return -1;
+            }
+            pos++;
+        }
+    }
+    unsigned code;
+    int bits;
+    fixed_litlen(256, &code, &bits);
+    int rc = bw_code(w, code, bits);
+    free(head);
+    free(prev);
+    return rc;
+}
+
+int deflate_zlib(const unsigned char *data, size_t len,
+                 unsigned char **out, size_t *out_len) {
+    size_t stored_cap = 2 + (len / 65535 + 1) * 5 + len + 4;
+    bitwriter_t w = { NULL, 0, 0, 0, 0 };
+    if (bw_reserve(&w, len + len / 4 + 64))
+        return -1;
+    w.d[w.n++] = 0x78;
+    w.d[w.n++] = 0x01;
+    if (deflate_fixed(data, len, &w)) {
+        free(w.d);
+        return -1;
+    }
+    if (w.nbits) {
+        if (bw_reserve(&w, 1)) {
+            free(w.d);
+            return -1;
+        }
+        w.d[w.n++] = (unsigned char)w.bitbuf;
+        w.bitbuf = 0;
+        w.nbits = 0;
+    }
+    uint32_t a = adler32(data, len);
+    if (bw_reserve(&w, 4)) {
+        free(w.d);
+        return -1;
+    }
+    w.d[w.n++] = (unsigned char)(a >> 24);
+    w.d[w.n++] = (unsigned char)(a >> 16);
+    w.d[w.n++] = (unsigned char)(a >> 8);
+    w.d[w.n++] = (unsigned char)a;
+    if (w.n >= stored_cap) {
+        free(w.d);
+        return deflate_zlib_stored(data, len, out, out_len);
+    }
+    *out = w.d;
+    *out_len = w.n;
+    return 0;
+}

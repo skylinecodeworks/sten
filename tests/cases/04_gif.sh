@@ -15,7 +15,7 @@ assert_rc "GIF wrong key -> 1" 1 "$BIN" decode -i "$D/keyed.gif" -k k2
 
 assert_rc "GIF without global palette rejected -> 3" 3 "$BIN" encode -i "$D/nopal.gif" -o "$D/x.gif" -m hola
 
-dd if=/dev/zero bs=5000 count=1 2>/dev/null | tr '\0' 'x' > "$D/gif_big.txt"
+head -c 5000 /dev/urandom > "$D/gif_big.txt"
 assert_rc "GIF oversized message -> 3" 3 "$BIN" encode -i "$D/test.gif" -o "$D/x.gif" -f "$D/gif_big.txt"
 
 "$BIN" encode -i "$D/test.gif" -o "$D/imgchk.gif" -m "$M" >/dev/null 2>&1
