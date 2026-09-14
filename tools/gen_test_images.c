@@ -6,6 +6,11 @@
 #include "util.h"
 #include "deflate.h"
 
+static void wr16le(unsigned char *p, uint32_t v) {
+    p[0] = (unsigned char)(v & 0xFF);
+    p[1] = (unsigned char)((v >> 8) & 0xFF);
+}
+
 static void wr32le(unsigned char *p, uint32_t v) {
     p[0] = (unsigned char)v;
     p[1] = (unsigned char)(v >> 8);
@@ -293,6 +298,204 @@ static void gen_gif_nopal(const char *path) {
     write_all(path, d, sizeof(d));
 }
 
+/* --- Netpbm (PPM/PGM/PAM) --- */
+
+static void gen_ppm(const char *path) {
+    int w = 32, h = 16;
+    size_t pix = (size_t)w * h * 3;
+    size_t hl = 13;
+    size_t total = hl + pix;
+    unsigned char *d = (unsigned char *)malloc(total);
+    if (!d)
+        exit(1);
+    static const unsigned char hdr[] = "P6\n32 16\n255\n";
+    memcpy(d, hdr, hl);
+    for (size_t i = 0; i < pix; i++)
+        d[hl + i] = noise((int)(i % w), (int)((i / w) % h), (int)(i % 3));
+    write_all(path, d, total);
+    free(d);
+}
+
+static void gen_pgm(const char *path) {
+    int w = 32, h = 16;
+    size_t pix = (size_t)w * h;
+    size_t hl = 13;
+    size_t total = hl + pix;
+    unsigned char *d = (unsigned char *)malloc(total);
+    if (!d)
+        exit(1);
+    static const unsigned char hdr[] = "P5\n32 16\n255\n";
+    memcpy(d, hdr, hl);
+    for (size_t i = 0; i < pix; i++)
+        d[hl + i] = noise((int)(i % w), (int)((i / w) % h), 0);
+    write_all(path, d, total);
+    free(d);
+}
+
+static void gen_pam(const char *path) {
+    int w = 32, h = 16;
+    static const unsigned char hdr[] =
+        "P7\nWIDTH 32\nHEIGHT 16\nDEPTH 3\nMAXVAL 255\nTUPLTYPE RGB\nENDHDR\n";
+    size_t hl = sizeof(hdr) - 1;
+    size_t pix = (size_t)w * h * 3;
+    unsigned char *d = (unsigned char *)malloc(hl + pix);
+    if (!d)
+        exit(1);
+    memcpy(d, hdr, hl);
+    for (size_t i = 0; i < pix; i++)
+        d[hl + i] = noise((int)(i % w), (int)((i / w) % h), (int)(i % 3));
+    write_all(path, d, hl + pix);
+    free(d);
+}
+
+/* --- TGA (24-bit uncompressed true-color) --- */
+
+static void gen_tga(const char *path) {
+    int w = 32, h = 16;
+    size_t pix = (size_t)w * h * 3;
+    unsigned char *d = (unsigned char *)calloc(1, 18 + pix);
+    if (!d)
+        exit(1);
+    d[2] = 2;
+    d[12] = (unsigned char)(w & 0xFF);
+    d[13] = (unsigned char)(w >> 8);
+    d[14] = (unsigned char)(h & 0xFF);
+    d[15] = (unsigned char)(h >> 8);
+    d[16] = 24;
+    d[17] = 0x20;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            size_t i = 18 + ((size_t)y * w + (size_t)x) * 3;
+            d[i + 0] = noise(x, y, 2); /* B */
+            d[i + 1] = noise(x, y, 1); /* G */
+            d[i + 2] = noise(x, y, 0); /* R */
+        }
+    write_all(path, d, 18 + pix);
+    free(d);
+}
+
+/* --- TIFF (little-endian baseline, uncompressed RGB strip) --- */
+
+static void gen_tiff(const char *path) {
+    int w = 32, h = 16;
+    size_t pix = (size_t)w * h * 3;
+    size_t strip_off = 140;
+    size_t total = strip_off + pix;
+    unsigned char *d = (unsigned char *)calloc(1, total);
+    if (!d)
+        exit(1);
+    d[0] = 'I';
+    d[1] = 'I';
+    d[2] = 42;
+    d[3] = 0;
+    wr32le(d + 4, 8);
+    wr32le(d + 8, 10);
+    size_t e = 10;
+    unsigned char ent[12];
+    memset(ent, 0, sizeof(ent));
+    wr16le(ent, 256); wr16le(ent + 2, 4); wr32le(ent + 4, 1); wr32le(ent + 8, (uint32_t)w);
+    memcpy(d + e, ent, 12); e += 12;
+    wr16le(ent, 257); wr16le(ent + 2, 4); wr32le(ent + 4, 1); wr32le(ent + 8, (uint32_t)h);
+    memcpy(d + e, ent, 12); e += 12;
+    wr16le(ent, 258); wr16le(ent + 2, 3); wr32le(ent + 4, 3); wr32le(ent + 8, 134);
+    memcpy(d + e, ent, 12); e += 12;
+    wr16le(ent, 259); wr16le(ent + 2, 3); wr32le(ent + 4, 1); wr32le(ent + 8, 1);
+    memcpy(d + e, ent, 12); e += 12;
+    wr16le(ent, 262); wr16le(ent + 2, 3); wr32le(ent + 4, 1); wr32le(ent + 8, 2);
+    memcpy(d + e, ent, 12); e += 12;
+    wr16le(ent, 273); wr16le(ent + 2, 4); wr32le(ent + 4, 1); wr32le(ent + 8, (uint32_t)strip_off);
+    memcpy(d + e, ent, 12); e += 12;
+    wr16le(ent, 277); wr16le(ent + 2, 3); wr32le(ent + 4, 1); wr32le(ent + 8, 3);
+    memcpy(d + e, ent, 12); e += 12;
+    wr16le(ent, 278); wr16le(ent + 2, 4); wr32le(ent + 4, 1); wr32le(ent + 8, (uint32_t)h);
+    memcpy(d + e, ent, 12); e += 12;
+    wr16le(ent, 279); wr16le(ent + 2, 4); wr32le(ent + 4, 1); wr32le(ent + 8, (uint32_t)pix);
+    memcpy(d + e, ent, 12); e += 12;
+    wr16le(ent, 284); wr16le(ent + 2, 3); wr32le(ent + 4, 1); wr32le(ent + 8, 1);
+    memcpy(d + e, ent, 12); e += 12;
+    wr32le(d + e, 0); e += 4;
+    wr16le(d + 134, 8); wr16le(d + 136, 8); wr16le(d + 138, 8);
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            size_t i = strip_off + ((size_t)y * w + (size_t)x) * 3;
+            d[i + 0] = noise(x, y, 0);
+            d[i + 1] = noise(x, y, 1);
+            d[i + 2] = noise(x, y, 2);
+        }
+    write_all(path, d, total);
+    free(d);
+}
+
+/* --- ICO with a PNG-encoded image --- */
+
+static void gen_ico(const char *path) {
+    int w = 16, h = 16;
+    size_t stride = 1 + (size_t)w * 4;
+    size_t rawlen = stride * (size_t)h;
+    unsigned char *raw = (unsigned char *)malloc(rawlen);
+    if (!raw)
+        exit(1);
+    for (int y = 0; y < h; y++) {
+        size_t row = (size_t)y * stride;
+        raw[row] = 0;
+        for (int x = 0; x < w; x++) {
+            size_t o = row + 1 + (size_t)x * 4;
+            raw[o] = noise(x, y, 0);
+            raw[o + 1] = noise(x, y, 1);
+            raw[o + 2] = noise(x, y, 2);
+            raw[o + 3] = 0xFF;
+        }
+    }
+    unsigned char *z = NULL;
+    size_t zlen = 0;
+    if (deflate_zlib_stored(raw, rawlen, &z, &zlen))
+        exit(1);
+    size_t pnglen = 8 + 25 + 12 + zlen + 12;
+    unsigned char *png = (unsigned char *)calloc(1, pnglen);
+    if (!png)
+        exit(1);
+    size_t n = 0;
+    static const unsigned char sig[8] = { 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A };
+    memcpy(png, sig, 8);
+    n = 8;
+    wr32be(png + n, 13);
+    memcpy(png + n + 4, "IHDR", 4);
+    wr32be(png + n + 8, (uint32_t)w);
+    wr32be(png + n + 12, (uint32_t)h);
+    png[n + 16] = 8;
+    png[n + 17] = 6;
+    wr32be(png + n + 21, crc32(png + n + 4, 17));
+    n += 25;
+    wr32be(png + n, (uint32_t)zlen);
+    memcpy(png + n + 4, "IDAT", 4);
+    memcpy(png + n + 8, z, zlen);
+    wr32be(png + n + 8 + zlen, crc32(png + n + 4, 4 + zlen));
+    n += 12 + zlen;
+    wr32be(png + n, 0);
+    memcpy(png + n + 4, "IEND", 4);
+    wr32be(png + n + 8, crc32(png + n + 4, 4));
+    n += 12;
+
+    size_t total = 6 + 16 + n;
+    unsigned char *d = (unsigned char *)calloc(1, total);
+    if (!d)
+        exit(1);
+    d[2] = 1;
+    d[4] = 1;
+    d[6] = 16;
+    d[7] = 16;
+    d[10] = 1;
+    d[13] = 32;
+    wr32le(d + 14, (uint32_t)n);
+    wr32le(d + 18, 22);
+    memcpy(d + 22, png, n);
+    write_all(path, d, total);
+    free(d);
+    free(png);
+    free(z);
+    free(raw);
+}
+
 /* --- JPEG --- */
 
 static const unsigned char min_jpeg[] = {
@@ -362,6 +565,19 @@ int main(int argc, char **argv) {
 
     snprintf(path, sizeof(path), "%s/test.jpg", argv[1]);
     write_all(path, min_jpeg, sizeof(min_jpeg));
+
+    snprintf(path, sizeof(path), "%s/test.ppm", argv[1]);
+    gen_ppm(path);
+    snprintf(path, sizeof(path), "%s/test.pgm", argv[1]);
+    gen_pgm(path);
+    snprintf(path, sizeof(path), "%s/test.pam", argv[1]);
+    gen_pam(path);
+    snprintf(path, sizeof(path), "%s/test.tga", argv[1]);
+    gen_tga(path);
+    snprintf(path, sizeof(path), "%s/test.tiff", argv[1]);
+    gen_tiff(path);
+    snprintf(path, sizeof(path), "%s/test.ico", argv[1]);
+    gen_ico(path);
 
     return 0;
 }

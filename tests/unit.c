@@ -7,12 +7,154 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "crypto.h"
 #include "deflate.h"
 #include "scatter.h"
 #include "util.h"
 
 static int passed = 0;
 static int failed = 0;
+
+static void ok(const char *name);
+static void ko(const char *name, const char *why);
+static void check(const char *name, int cond);
+static void fill(unsigned char *p, size_t n, uint32_t seed);
+
+static int hexval(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static size_t h2b(const char *hex, unsigned char *out, size_t cap) {
+    size_t n = 0;
+    for (; hex[0] && hex[1]; hex += 2) {
+        if (n >= cap)
+            break;
+        out[n++] = (unsigned char)((hexval(hex[0]) << 4) | hexval(hex[1]));
+    }
+    return n;
+}
+
+static void check_bytes(const char *name, const unsigned char *got, size_t n,
+                        const char *hex) {
+    unsigned char exp[512];
+    if (n * 2 != strlen(hex) || h2b(hex, exp, sizeof(exp)) != n) {
+        ko(name, "bad expected hex");
+        return;
+    }
+    if (memcmp(got, exp, n) == 0)
+        ok(name);
+    else
+        ko(name, "bytes differ");
+}
+
+static void test_sha256(void) {
+    unsigned char d[32];
+    sha256((const unsigned char *)"abc", 3, d);
+    check_bytes("sha256 abc", d, 32,
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    sha256((const unsigned char *)"", 0, d);
+    check_bytes("sha256 empty string", d, 32,
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    const unsigned char msg[] = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
+    sha256(msg, 56, d);
+    check_bytes("sha256 long (NIST vector)", d, 32,
+                "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+}
+
+static void test_hmac_sha256(void) {
+    unsigned char d[64];
+    hmac_sha256((const unsigned char *)"Jefe", 4, (const unsigned char *)"what do ya want for nothing?", 28, d);
+    check_bytes("hmac-sha256 RFC 4231 test 2", d, 32,
+                "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
+    unsigned char key[20];
+    memset(key, 0x0b, 20);
+    const unsigned char data[] = "Hi There";
+    hmac_sha256(key, 20, data, 8, d);
+    check_bytes("hmac-sha256 RFC 4231 test 1", d, 32,
+                "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7");
+}
+
+static void test_pbkdf2(void) {
+    unsigned char out[64];
+    pbkdf2_sha256((const unsigned char *)"password", 8, (const unsigned char *)"salt", 4, 1, out, 32);
+    check_bytes("pbkdf2-sha256 password/salt 1 iter", out, 32,
+                "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b");
+    pbkdf2_sha256((const unsigned char *)"password", 8, (const unsigned char *)"salt", 4, 2, out, 32);
+    check_bytes("pbkdf2-sha256 password/salt 2 iters", out, 32,
+                "ae4d0c95af6b46d32d0adff928f06dd02a303f8ef3c251dfd6e2d85a95474c43");
+    pbkdf2_sha256((const unsigned char *)"password", 8, (const unsigned char *)"salt", 4, 4096, out, 32);
+    check_bytes("pbkdf2-sha256 password/salt 4096 iters", out, 32,
+                "c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a");
+}
+
+static void test_chacha20(void) {
+    static const unsigned char key[32] = {
+        0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+        0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,
+        0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,
+        0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f
+    };
+    static const unsigned char nonce[12] = {
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x4a,0x00,0x00,0x00,0x00
+    };
+    const char *msg = "Ladies and Gentlemen of the class of '99: "
+                      "If I could offer you only one tip for the future, sunscreen would be it.";
+    size_t n = strlen(msg);
+    unsigned char *mk = (unsigned char *)malloc(n ? n : 1);
+    if (!mk)
+        exit(2);
+    memcpy(mk, msg, n);
+    chacha20_xor(mk, n, key, nonce, 1);
+    const unsigned char *id = (const unsigned char *)mk;
+    check_bytes("chacha20 RFC 7539 2.3.2 encryption", id, n,
+                "6e2e359a2568f98041ba0728dd0d6981e97e7aec1d4360c20a27afccfd9fae0b"
+                "f91b65c5524733ab8f593dabcd62b3571639d624e65152ab8f530c359f0861d8"
+                "07ca0dbf500d6a6156a38e088a22b65e52bc514d16ccf806818ce91ab7793736"
+                "5af90bbf74a35be6b40b8eedf2785e42874d");
+    chacha20_xor(mk, n, key, nonce, 1);
+    check("chacha20 decrypt roundtrip", memcmp(mk, msg, n) == 0);
+    free(mk);
+}
+
+static void test_scatter_encryption(void) {
+    unsigned char carrier[65536];
+    unsigned char fpsrc[65536];
+    fill(carrier, sizeof(carrier), 0x11223344u);
+    memcpy(fpsrc, carrier, sizeof(carrier));
+    const unsigned char enc_key[32] = {
+        0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,
+        0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f
+    };
+    const unsigned char bad_key[32] = {
+        0xde,0xad,0xbe,0xef,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+    };
+    carrier_t c = { carrier, sizeof(carrier), NULL };
+    const char *secret = "encrypted payload test";
+    check("scatter_embed_ex encrypts",
+          scatter_embed_ex(&c, fpsrc, sizeof(fpsrc), (const unsigned char *)secret,
+                           strlen(secret), NULL, 0, 3, enc_key) == 0);
+    unsigned char *m = NULL;
+    size_t mlen = 0;
+    check("scatter extract encrypted ok",
+          scatter_auto_extract_ex(&c, fpsrc, sizeof(fpsrc), NULL, 0, enc_key,
+                                  &m, &mlen) == 0 && mlen == strlen(secret) &&
+          memcmp(m, secret, mlen) == 0);
+    free(m);
+    m = NULL;
+    mlen = 0;
+    check("scatter extract wrong key -> 1",
+          scatter_auto_extract_ex(&c, fpsrc, sizeof(fpsrc), NULL, 0, bad_key,
+                                  &m, &mlen) == 1);
+    m = NULL;
+    mlen = 0;
+    check("scatter extract no key -> 1",
+          scatter_auto_extract_ex(&c, fpsrc, sizeof(fpsrc), NULL, 0, NULL,
+                                  &m, &mlen) == 1);
+}
 
 static void ok(const char *name) {
     printf("ok %s\n", name);
@@ -355,6 +497,14 @@ static void test_scatter(void) {
 int main(void) {
     test_hashes();
     test_rng();
+
+    test_sha256();
+    test_hmac_sha256();
+    test_pbkdf2();
+    test_chacha20();
+
+    test_scatter();
+    test_scatter_encryption();
 
     test_deflate_roundtrip(0, "deflate roundtrip n=0");
     test_deflate_roundtrip(1, "deflate roundtrip n=1");

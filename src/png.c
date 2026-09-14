@@ -258,7 +258,8 @@ static int png_to_filtered(unsigned char *buf, uint32_t h, size_t stride, size_t
 }
 
 int png_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t msg_len,
-              const unsigned char *key, size_t key_len, unsigned char **out, size_t *out_len) {
+              const unsigned char *key, size_t key_len, const unsigned char *enc_key,
+              unsigned char **out, size_t *out_len) {
     uint32_t w, h;
     unsigned ct;
     unsigned char *pre, *idat, *iend;
@@ -296,7 +297,7 @@ int png_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t
         return -1;
     }
     carrier_t c = { raw, raw_len, allowed };
-    int rc = scatter_embed(&c, raw, raw_len, msg, msg_len, key, key_len, 3);
+    int rc = scatter_embed_ex(&c, raw, raw_len, msg, msg_len, key, key_len, 3, enc_key);
     free(allowed);
     if (rc == -1) {
         fprintf(stderr, "error: message too large for this image\n");
@@ -362,7 +363,7 @@ int png_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t
 }
 
 int png_extract(unsigned char *in, size_t in_len, const unsigned char *key, size_t key_len,
-                unsigned char **msg, size_t *msg_len) {
+                const unsigned char *enc_key, unsigned char **msg, size_t *msg_len) {
     uint32_t w, h;
     unsigned ct;
     unsigned char *pre, *idat, *iend;
@@ -401,7 +402,7 @@ int png_extract(unsigned char *in, size_t in_len, const unsigned char *key, size
     }
 
     carrier_t c = { raw, raw_len, allowed };
-    int rc = scatter_auto_extract(&c, raw, raw_len, key, key_len, msg, msg_len);
+    int rc = scatter_auto_extract_ex(&c, raw, raw_len, key, key_len, enc_key, msg, msg_len);
 
     free(allowed);
     free(raw);
@@ -409,4 +410,47 @@ int png_extract(unsigned char *in, size_t in_len, const unsigned char *key, size
     free(idat);
     free(iend);
     return rc;
+}
+
+int png_capacity(const unsigned char *in, size_t in_len, size_t *bytes) {
+    uint32_t w, h;
+    unsigned ct;
+    unsigned char *pre, *idat, *iend;
+    size_t pre_len, idat_len, iend_len;
+    if (png_load((unsigned char *)in, in_len, &w, &h, &ct, &pre, &pre_len, &idat, &idat_len, &iend, &iend_len))
+        return -1;
+
+    size_t stride = 1 + (size_t)w * (ct == 6 ? 4 : 3);
+    size_t bpp = ct == 6 ? 4 : 3;
+    size_t expected = stride * (size_t)h;
+    unsigned char *raw = NULL;
+    size_t raw_len = 0;
+    if (inflate_zlib(idat, idat_len, &raw, &raw_len, expected)) {
+        free(pre);
+        free(idat);
+        free(iend);
+        return -1;
+    }
+    free(idat);
+
+    if (png_to_raw(raw, h, stride, bpp)) {
+        free(raw);
+        free(pre);
+        free(iend);
+        return -1;
+    }
+    unsigned char *allowed = png_allowed(raw_len, stride, h);
+    if (!allowed) {
+        free(raw);
+        free(pre);
+        free(iend);
+        return -1;
+    }
+    carrier_t c = { raw, raw_len, allowed };
+    *bytes = scatter_msg_capacity(&c, 3);
+    free(allowed);
+    free(raw);
+    free(pre);
+    free(iend);
+    return 0;
 }
