@@ -104,9 +104,9 @@ jobs:
           chown -R builder "$GITHUB_WORKSPACE" /github/home
           sed -i "s/@VERSION@/${GITHUB_REF_NAME#v}/g" packaging/APKBUILD
           cp packaging/APKBUILD .
-          su builder -c 'abuild-keygen -a -n && abuild checksum && REPODEST=/tmp/packages abuild -r'
+          su builder -c 'abuild-keygen -a -n && abuild checksum && abuild'
           mkdir -p apk-dist
-          find /tmp/packages -name '*.apk' -exec cp {} apk-dist/ \;
+          cp *.apk apk-dist/
 
       - name: Upload .apk
         uses: actions/upload-artifact@v4
