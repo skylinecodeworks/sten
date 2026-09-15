@@ -18,12 +18,12 @@ Scope decisions:
 - Docs: README, man page `docs/sten.1`, `make install` (PREFIX/DESTDIR), benchmarks (`make bench`).
 - Git: phases 0-4 committed and merged to `main`; clean history.
 
-## Phase 0 — Minimal foundation ✅ done
+## Phase 0 — Minimal foundation (done)
 
 - Initial repo commit, README (usage, per-format capacity, JPEG/COM scope). Commit `25d1e23`.
 - `make test` green as the gate for every subsequent phase.
 
-## Phase 1 — Capacity: real compression ✅ done
+## Phase 1 — Capacity: real compression (done)
 
 `deflate_zlib_stored` no longer inflates output PNGs.
 
@@ -34,7 +34,7 @@ Scope decisions:
 
 Carried-over debt: dynamic-Huffman encoder still missing. See `Pending`.
 
-## Phase 2 — Utility: encryption and new formats ✅ done
+## Phase 2 — Utility: encryption and new formats (done)
 
 1. Optional vendored crypto: **ChaCha20** (RFC 7539 vectors) + PBKDF2-HMAC-SHA256 as KDF.
    - `-p/--passphrase` derives the key; `-k` stays for raw keys.
@@ -43,14 +43,14 @@ Carried-over debt: dynamic-Huffman encoder still missing. See `Pending`.
    - New `src/ppm.c`, `src/tga.c`, `src/tiff.c`, `src/ico.c` following the `bmp.c` pattern, plus test cases.
 3. `--capacity`: reports max embeddable bytes for a given image (and key), reusing `scatter`'s `capacity()`.
 
-## Phase 3 — Defensive security (regression guard) ✅ done
+## Phase 3 — Defensive security (regression guard) (done)
 
 - **Fuzzing** harness for the parsers (BMP/PNG/GIF/JPEG) + regression corpus (`tools/fuzz.c`, `tests/cases/14_fuzz.sh`).
 - `07_robustness.sh` extended with findings.
 - ASan/UBSan CI running `make test` (`make test-san`, `make fuzz-san`; optional external pipeline).
 - Hardened known boundary checks (BMP `off+plen`, PNG `pos+clen`, GIF palette overflow).
 
-## Phase 4 — UX and delivery ✅ done
+## Phase 4 — UX and delivery (done)
 
 - `--inspect` (format, dimensions, color type, capacity), `--verbose`, `--version`.
 - Man page `sten(1)` and `make install`.
