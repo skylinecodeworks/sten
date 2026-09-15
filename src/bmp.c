@@ -84,7 +84,7 @@ static unsigned char *bmp_allowed(size_t stride, size_t rowbytes, size_t rows) {
 }
 
 int bmp_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t msg_len,
-              const unsigned char *key, size_t key_len, const unsigned char *enc_key,
+              const unsigned char *key, size_t key_len, const unsigned char *enc_key, size_t enc_key_len,
               unsigned char **out, size_t *out_len) {
     unsigned char *pixels;
     size_t pix_len, stride, rb, rows;
@@ -96,7 +96,7 @@ int bmp_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t
         return -1;
     }
     carrier_t c = { pixels, pix_len, allowed };
-    int rc = scatter_embed_ex(&c, pixels, pix_len, msg, msg_len, key, key_len, 3, enc_key);
+    int rc = scatter_embed_ex(&c, pixels, pix_len, msg, msg_len, key, key_len, 3, enc_key, enc_key_len);
     free(allowed);
     if (rc == -1) {
         fprintf(stderr, "error: message too large for this image\n");
@@ -112,7 +112,7 @@ int bmp_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t
 }
 
 int bmp_extract(unsigned char *in, size_t in_len, const unsigned char *key, size_t key_len,
-                const unsigned char *enc_key, unsigned char **msg, size_t *msg_len) {
+                const unsigned char *enc_key, size_t enc_key_len, unsigned char **msg, size_t *msg_len) {
     unsigned char *pixels;
     size_t pix_len, stride, rb, rows;
     if (bmp_parse(in, in_len, &pixels, &pix_len, &stride, &rb, &rows, NULL, NULL, NULL))
@@ -121,7 +121,7 @@ int bmp_extract(unsigned char *in, size_t in_len, const unsigned char *key, size
     if (!allowed)
         return -1;
     carrier_t c = { pixels, pix_len, allowed };
-    int rc = scatter_auto_extract_ex(&c, pixels, pix_len, key, key_len, enc_key, msg, msg_len);
+    int rc = scatter_auto_extract_ex(&c, pixels, pix_len, key, key_len, enc_key, enc_key_len, msg, msg_len);
     free(allowed);
     return rc;
 }

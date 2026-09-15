@@ -20,7 +20,7 @@ Options:
 | `-m, --message`| text message to hide |
 | `-f, --file`   | read the message from a file |
 | `-k, --key`    | optional key (derives the bit path) |
-| `-p, --passphrase` | optional passphrase (encrypts the payload with ChaCha20 + PBKDF2) |
+| `-p, --passphrase` | optional passphrase (encrypts the payload; ChaCha20 + PBKDF2, random per-message salt) |
 | `-v, --verbose`| print the detected format details to stderr |
 | `-h, --help`   | show this help |
 | `-V, --version`| print the version and exit |
@@ -65,18 +65,24 @@ valid JPEG that decodes identically to the input. Consequences:
 - The embedded data survives copying, renaming and a re-save by tools that
   preserve COM markers, but not aggressive re-encoding that strips comments.
 
-## Encryption (phase 2)
+## Encryption (passphrase)
 
-Passing `-p` activates payload encryption. The ChaCha20 key is derived from
-the passphrase with PBKDF2-HMAC-SHA256 (100 000 iterations), and the same
-derived key is also used as the ScatterBit path key, so a wrong passphrase
-fails both the path and the payload integrity check. The payload carries a
-fresh salt/nonce pair (deterministic per image+key), and each encrypted
-payload ends with a CRC32 tag over the plaintext.
+Passing `-p` encrypts the stored payload with ChaCha20. A fresh 16-byte salt
+and 12-byte nonce are drawn from the OS entropy source for every encoding; the
+encryption key is derived from the passphrase with PBKDF2-HMAC-SHA256
+(100 000 iterations) over that per-message salt and mixed through SHA-256.
+Each encrypted payload ends with a CRC32 tag over the plaintext, which also
+serves as the wrong-passphrase detector.
 
+- The bit path is independent from the passphrase: with `-p` the ScatterBit
+  path is derived from the image alone, and the encrypted cargo is what
+  protects the message. `-k` controls the path but does not encrypt.
 - `-k` and `-p` are mutually exclusive.
-- Compression (phase 1) happens before encryption, so short messages shrink
-  first and are then encrypted.
+- Compression happens before encryption, so short messages shrink first and
+  are then encrypted.
+- The salt is random per encoding, so the output is non-deterministic: the
+  same passphrase and image produce a different file on every run. Salt and
+  nonce are stored in the payload header.
 - Encrypted payloads use the `SBT2` header with the `encoded` flag; plain
   payloads remain fully backward compatible.
 
@@ -106,6 +112,8 @@ Requires a C99/C11 compiler and `make`. Runs on any POSIX system.
   payloads are still extracted.
 - Phase 1 adds real zlib deflate (LZ77 + fixed Huffman blocks, with a stored
   fallback) so compressible messages shrink before embedding.
+- With `-p` the payload is encrypted and the path is independent of the
+  passphrase; `/dev/urandom` supplies the per-message salt and nonce.
 - Decode probes redundancy 3 -> 2 -> 1 automatically, so an image embedded
   with any redundancy extracts without flags.
 - All crypto (SHA-256, HMAC-SHA256, PBKDF2, ChaCha20), hashing (CRC32,

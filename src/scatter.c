@@ -1,6 +1,7 @@
 #include "scatter.h"
 #include "crypto.h"
 #include "deflate.h"
+#include "rand.h"
 #include "util.h"
 #include <stdlib.h>
 #include <string.h>
@@ -64,10 +65,22 @@ static int pos_ok(const carrier_t *c, const unsigned char *used, size_t i) {
     return used[i] < (unsigned char)depth_at(c->data, c->len, i);
 }
 
+static int enc_key_derive(const unsigned char *enc_key, size_t enc_key_len,
+                          const unsigned char salt[16], unsigned char ekey[32]) {
+    unsigned char key32[32];
+    pbkdf2_sha256(enc_key, enc_key_len, salt, SALT_LEN,
+                  STEN_PBKDF2_ITERS, key32, sizeof(key32));
+    unsigned char mixin[48];
+    memcpy(mixin, key32, 32);
+    memcpy(mixin + 32, salt, SALT_LEN);
+    sha256(mixin, sizeof(mixin), ekey);
+    return 0;
+}
+
 static int scatter_embed_v(carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
                            const unsigned char *msg, size_t msg_len,
                            const unsigned char *key, size_t key_len, int redundancy,
-                           int version, const unsigned char *enc_key) {
+                           int version, const unsigned char *enc_key, size_t enc_key_len) {
     if (msg_len > MAX_MSG || redundancy < 1 || redundancy > 3)
         return -2;
 
@@ -89,24 +102,26 @@ static int scatter_embed_v(carrier_t *c, const unsigned char *fpsrc, size_t fpsr
 
     if (version == 2 && enc_key) {
         flags |= FLAG_ENC;
-        unsigned char kdfin[40];
-        uint64_t fp = fingerprint(fpsrc, fpsrc_len);
-        memcpy(kdfin, enc_key, 32);
-        for (int i = 0; i < 8; i++)
-            kdfin[32 + i] = (unsigned char)(fp >> (56 - i * 8));
-        unsigned char dk[32];
-        sha256(kdfin, sizeof(kdfin), dk);
         size_t enc_len = ENC_OVERHEAD + stored_len;
         owned2 = (unsigned char *)malloc(enc_len);
         if (!owned2) {
             free(owned1);
             return -2;
         }
-        memcpy(owned2, dk, SALT_LEN);
-        memcpy(owned2 + SALT_LEN, dk + SALT_LEN, NONCE_LEN);
+        unsigned char salt[SALT_LEN];
+        unsigned char nonce[NONCE_LEN];
+        if (rand_bytes(salt, sizeof(salt)) != 0 ||
+            rand_bytes(nonce, sizeof(nonce)) != 0) {
+            free(owned1);
+            free(owned2);
+            return -2;
+        }
+        unsigned char ekey[32];
+        enc_key_derive(enc_key, enc_key_len, salt, ekey);
+        memcpy(owned2, salt, SALT_LEN);
+        memcpy(owned2 + SALT_LEN, nonce, NONCE_LEN);
         memcpy(owned2 + SALT_LEN + NONCE_LEN, stored, stored_len);
-        chacha20_xor(owned2 + SALT_LEN + NONCE_LEN, stored_len, enc_key,
-                     owned2 + SALT_LEN, 1);
+        chacha20_xor(owned2 + SALT_LEN + NONCE_LEN, stored_len, ekey, nonce, 1);
         uint32_t pt = crc32(stored, stored_len);
         owned2[enc_len - 4] = (unsigned char)(pt >> 24);
         owned2[enc_len - 3] = (unsigned char)(pt >> 16);
@@ -191,27 +206,27 @@ int scatter_embed(carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
                   const unsigned char *msg, size_t msg_len,
                   const unsigned char *key, size_t key_len, int redundancy) {
     return scatter_embed_v(c, fpsrc, fpsrc_len, msg, msg_len, key, key_len,
-                           redundancy, 2, NULL);
+                           redundancy, 2, NULL, 0);
 }
 
 int scatter_embed_ex(carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
                      const unsigned char *msg, size_t msg_len,
                      const unsigned char *key, size_t key_len, int redundancy,
-                     const unsigned char *enc_key) {
+                     const unsigned char *enc_key, size_t enc_key_len) {
     return scatter_embed_v(c, fpsrc, fpsrc_len, msg, msg_len, key, key_len,
-                           redundancy, 2, enc_key);
+                           redundancy, 2, enc_key, enc_key_len);
 }
 
 int scatter_embed_v1(carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
                      const unsigned char *msg, size_t msg_len,
                      const unsigned char *key, size_t key_len, int redundancy) {
     return scatter_embed_v(c, fpsrc, fpsrc_len, msg, msg_len, key, key_len,
-                           redundancy, 1, NULL);
+                           redundancy, 1, NULL, 0);
 }
 
 static int extract_with_r(const carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
                           const unsigned char *key, size_t key_len, int redundancy,
-                          const unsigned char *enc_key,
+                          const unsigned char *enc_key, size_t enc_key_len,
                           unsigned char **msg, size_t *msg_len) {
     size_t cap = capacity(c);
     if (cap < 64u * (size_t)redundancy)
@@ -313,19 +328,22 @@ static int extract_with_r(const carrier_t *c, const unsigned char *fpsrc, size_t
                     goto done;
                 if (mlen < ENC_OVERHEAD)
                     goto done;
+                const unsigned char *salt = data;
                 const unsigned char *nonce = data + SALT_LEN;
                 size_t ct_len = mlen - ENC_OVERHEAD;
                 uint32_t want_pt = ((uint32_t)data[mlen - 4] << 24) |
                                    ((uint32_t)data[mlen - 3] << 16) |
                                    ((uint32_t)data[mlen - 2] << 8) |
                                    data[mlen - 1];
+                unsigned char ekey[32];
+                enc_key_derive(enc_key, enc_key_len, salt, ekey);
                 dec = (unsigned char *)malloc(ct_len ? ct_len : 1);
                 if (!dec) {
                     rc = -1;
                     goto done;
                 }
                 memcpy(dec, data + SALT_LEN + NONCE_LEN, ct_len);
-                chacha20_xor(dec, ct_len, enc_key, nonce, 1);
+                chacha20_xor(dec, ct_len, ekey, nonce, 1);
                 if (crc32(dec, ct_len) != want_pt) {
                     free(dec);
                     goto done;
@@ -372,15 +390,16 @@ done:
 int scatter_auto_extract(const carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
                          const unsigned char *key, size_t key_len,
                          unsigned char **msg, size_t *msg_len) {
-    return scatter_auto_extract_ex(c, fpsrc, fpsrc_len, key, key_len, NULL, msg, msg_len);
+    return scatter_auto_extract_ex(c, fpsrc, fpsrc_len, key, key_len, NULL, 0, msg, msg_len);
 }
 
 int scatter_auto_extract_ex(const carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
                             const unsigned char *key, size_t key_len,
-                            const unsigned char *enc_key,
+                            const unsigned char *enc_key, size_t enc_key_len,
                             unsigned char **msg, size_t *msg_len) {
     for (int r = 3; r >= 1; r--) {
-        int rc = extract_with_r(c, fpsrc, fpsrc_len, key, key_len, r, enc_key, msg, msg_len);
+        int rc = extract_with_r(c, fpsrc, fpsrc_len, key, key_len, r, enc_key, enc_key_len,
+                                msg, msg_len);
         if (rc == 0)
             return 0;
         if (rc < 0)

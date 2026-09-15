@@ -56,7 +56,11 @@ check_roundtrip_file_pass "passphrase binary file roundtrip" "$D/test.png" "$D/p
 
 "$BIN" encode -i "$D/test.bmp" -o "$D/pwd1.bmp" -m "$M" -p "$P" >/dev/null 2>&1
 "$BIN" encode -i "$D/test.bmp" -o "$D/pwd2.bmp" -m "$M" -p "$P" >/dev/null 2>&1
-assert_file_eq "passphrase deterministic" "$D/pwd1.bmp" "$D/pwd2.bmp"
+assert_file_neq "passphrase random salt non-deterministic" "$D/pwd1.bmp" "$D/pwd2.bmp"
+
+"$BIN" encode -i "$D/test.bmp" -o "$D/pwd3.bmp" -m "$M" -p "$P" >/dev/null 2>&1
+_got_pwd3=$("$BIN" decode -i "$D/pwd3.bmp" -p "$P" 2>/dev/null)
+assert_eq "passphrase random salt roundtrip" "$M" "$_got_pwd3"
 
 assert_rc "tags -k and -p exclusive -> 2" 2 "$BIN" encode -i "$D/test.bmp" -o "$D/x.bmp" -m hola -k k1 -p p1
 assert_rc "tags -k and -p exclusive decode -> 2" 2 "$BIN" decode -i "$D/test.bmp" -k k1 -p p1

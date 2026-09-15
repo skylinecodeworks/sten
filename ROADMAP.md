@@ -13,8 +13,11 @@ Scope decisions:
 
 - C11 CLI: `encode` / `decode` / `capacity` / `inspect`, options `-k` / `-p` / `-v` / `-V` / `-h`.
 - Formats: BMP, PNG, GIF, JPEG (COM segment), PNM/PAM, TGA (uncompressed), TIFF, ICO (reuses the PNG adapter).
-- ScatterBit payload `SBT2`: content fingerprinting + PRNG path keyed by raw key (or PBKDF2-derived with `-p`), adaptive redundancy 1-3, optional zlib compression (LZ77 + fixed Huffman) and ChaCha20 encryption, CRC32 integrity check, auto-extract probing redundancy 3->1. Legacy `SBT1` messages still decode.
-- Tests: 15 shell cases + C unit tests (101 passing), generated fixtures, optional Pillow validation, mutation fuzzer `tools/fuzz`, and ASan/UBSan gates (`make fuzz-san` / `make test-san`).
+- ScatterBit payload `SBT2`: content fingerprinting + PRNG path keyed by raw key (`-k`), adaptive redundancy 1-3, optional zlib compression (LZ77 + fixed Huffman) and ChaCha20 encryption, CRC32 integrity check, auto-extract probing redundancy 3->1. Legacy `SBT1` messages still decode.
+- `-p` (passphrase): the bit path is derived from the image alone; the payload
+  is encrypted with ChaCha20 keyed by PBKDF2-HMAC-SHA256 (100k iterations)
+  over a fresh random salt per message (/dev/urandom), mixed via SHA-256.
+- Tests: 15 shell cases + C unit tests (105 passing), generated fixtures, optional Pillow validation, mutation fuzzer `tools/fuzz`, and ASan/UBSan gates (`make fuzz-san` / `make test-san`).
 - Docs: README, man page `docs/sten.1`, `make install` (PREFIX/DESTDIR), benchmarks (`make bench`).
 - Git: phases 0-4 committed and merged to `main`; clean history.
 
@@ -24,6 +27,9 @@ Scope decisions:
 - `make test` green as the gate for every subsequent phase.
 
 ## Phase 1 — Capacity: real compression (done)
+
+This is the man page's *compresión real* effort: the message is deflated
+before being hidden.
 
 `deflate_zlib_stored` no longer inflates output PNGs.
 
@@ -37,15 +43,18 @@ Carried-over debt: dynamic-Huffman encoder still missing. See `Pending`.
 ## Phase 2 — Utility: encryption and new formats (done)
 
 1. Optional vendored crypto: **ChaCha20** (RFC 7539 vectors) + PBKDF2-HMAC-SHA256 as KDF.
-   - `-p/--passphrase` derives the key; `-k` stays for raw keys.
+   - `-p/--passphrase` derives the key; `-k` stays for raw keys (path only).
    - Reference-vector and integrity tests (wrong key/passphrase -> rc 1).
+   - Follow-up hardening: the KDF salt became a random per-message salt
+     (`/dev/urandom`) with a random nonce, and the bit path was decoupled from
+     the passphrase, so encryption no longer relies on a static salt.
 2. Low-effort formats: PPM/PGM/PAM (uncompressed), TGA, uncompressed TIFF, ICO (reuses the PNG adapter).
    - New `src/ppm.c`, `src/tga.c`, `src/tiff.c`, `src/ico.c` following the `bmp.c` pattern, plus test cases.
 3. `--capacity`: reports max embeddable bytes for a given image (and key), reusing `scatter`'s `capacity()`.
 
 ## Phase 3 — Defensive security (regression guard) (done)
 
-- **Fuzzing** harness for the parsers (BMP/PNG/GIF/JPEG) + regression corpus (`tools/fuzz.c`, `tests/cases/14_fuzz.sh`).
+- **Fuzzing** harness for the parsers (BMP/PNG/GIF/JPEG) + regression corpus (`tools/fuzz.c`, `tests/cases/14_fuzz.sh`). Mutation-based fuzzing exercises every adapter under ASan/UBSan.
 - `07_robustness.sh` extended with findings.
 - ASan/UBSan CI running `make test` (`make test-san`, `make fuzz-san`; optional external pipeline).
 - Hardened known boundary checks (BMP `off+plen`, PNG `pos+clen`, GIF palette overflow).

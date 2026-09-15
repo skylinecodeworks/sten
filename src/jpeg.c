@@ -58,7 +58,7 @@ static int jpeg_find_com(const unsigned char *in, size_t len, cominfo_t *ci) {
 }
 
 int jpeg_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t msg_len,
-               const unsigned char *key, size_t key_len, const unsigned char *enc_key,
+               const unsigned char *key, size_t key_len, const unsigned char *enc_key, size_t enc_key_len,
                unsigned char **out, size_t *out_len) {
     if (in_len < 4 || in[0] != 0xFF || in[1] != 0xD8) {
         fprintf(stderr, "error: invalid JPEG\n");
@@ -94,7 +94,7 @@ int jpeg_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_
         o[6 + i] = (unsigned char)(rng_next(&rng) >> 32);
 
     carrier_t c = { o + 6, L, NULL };
-    int rc = scatter_embed_ex(&c, in, in_len, msg, msg_len, key, key_len, 1, enc_key);
+    int rc = scatter_embed_ex(&c, in, in_len, msg, msg_len, key, key_len, 1, enc_key, enc_key_len);
     if (rc != 0) {
         free(o);
         fprintf(stderr, "error: could not embed in the COM segment\n");
@@ -107,7 +107,7 @@ int jpeg_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_
 }
 
 int jpeg_extract(unsigned char *in, size_t in_len, const unsigned char *key, size_t key_len,
-                 const unsigned char *enc_key, unsigned char **msg, size_t *msg_len) {
+                 const unsigned char *enc_key, size_t enc_key_len, unsigned char **msg, size_t *msg_len) {
     if (in_len < 4 || in[0] != 0xFF || in[1] != 0xD8) {
         fprintf(stderr, "error: invalid JPEG\n");
         return -1;
@@ -127,7 +127,7 @@ int jpeg_extract(unsigned char *in, size_t in_len, const unsigned char *key, siz
     memcpy(fp + ci.start, in + ci.ext_end, in_len - ci.ext_end);
 
     carrier_t c = { (unsigned char *)ci.payload, ci.payload_len, NULL };
-    int rc = scatter_auto_extract_ex(&c, fp, flen, key, key_len, enc_key, msg, msg_len);
+    int rc = scatter_auto_extract_ex(&c, fp, flen, key, key_len, enc_key, enc_key_len, msg, msg_len);
     free(fp);
     return rc;
 }

@@ -9,6 +9,7 @@
 
 #include "crypto.h"
 #include "deflate.h"
+#include "rand.h"
 #include "scatter.h"
 #include "util.h"
 
@@ -90,6 +91,14 @@ static void test_pbkdf2(void) {
                 "c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a");
 }
 
+static void test_rand(void) {
+    unsigned char a[16], b[16], tail[4];
+    check("rand_bytes basic", rand_bytes(a, sizeof(a)) == 0);
+    check("rand_bytes tail", rand_bytes(tail, sizeof(tail)) == 0);
+    check("rand_bytes draws differ", rand_bytes(b, sizeof(b)) == 0 && memcmp(a, b, 16) != 0);
+    check("rand_bytes zero length ok", rand_bytes(NULL, 0) == 0);
+}
+
 static void test_chacha20(void) {
     static const unsigned char key[32] = {
         0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
@@ -136,23 +145,23 @@ static void test_scatter_encryption(void) {
     const char *secret = "encrypted payload test";
     check("scatter_embed_ex encrypts",
           scatter_embed_ex(&c, fpsrc, sizeof(fpsrc), (const unsigned char *)secret,
-                           strlen(secret), NULL, 0, 3, enc_key) == 0);
+                           strlen(secret), NULL, 0, 3, enc_key, sizeof(enc_key)) == 0);
     unsigned char *m = NULL;
     size_t mlen = 0;
     check("scatter extract encrypted ok",
           scatter_auto_extract_ex(&c, fpsrc, sizeof(fpsrc), NULL, 0, enc_key,
-                                  &m, &mlen) == 0 && mlen == strlen(secret) &&
+                                  sizeof(enc_key), &m, &mlen) == 0 && mlen == strlen(secret) &&
           memcmp(m, secret, mlen) == 0);
     free(m);
     m = NULL;
     mlen = 0;
     check("scatter extract wrong key -> 1",
           scatter_auto_extract_ex(&c, fpsrc, sizeof(fpsrc), NULL, 0, bad_key,
-                                  &m, &mlen) == 1);
+                                  sizeof(bad_key), &m, &mlen) == 1);
     m = NULL;
     mlen = 0;
     check("scatter extract no key -> 1",
-          scatter_auto_extract_ex(&c, fpsrc, sizeof(fpsrc), NULL, 0, NULL,
+          scatter_auto_extract_ex(&c, fpsrc, sizeof(fpsrc), NULL, 0, NULL, 0,
                                   &m, &mlen) == 1);
 }
 
@@ -502,6 +511,7 @@ int main(void) {
     test_hmac_sha256();
     test_pbkdf2();
     test_chacha20();
+    test_rand();
 
     test_scatter();
     test_scatter_encryption();

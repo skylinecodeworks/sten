@@ -56,7 +56,7 @@ static void w_le32(unsigned char *p, unsigned long v) {
 }
 
 int ico_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t msg_len,
-              const unsigned char *key, size_t key_len, const unsigned char *enc_key,
+              const unsigned char *key, size_t key_len, const unsigned char *enc_key, size_t enc_key_len,
               unsigned char **out, size_t *out_len) {
     unsigned idx;
     unsigned char *png;
@@ -66,7 +66,7 @@ int ico_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t
 
     unsigned char *new_png;
     size_t new_png_len;
-    if (png_embed(png, png_len, msg, msg_len, key, key_len, enc_key,
+    if (png_embed(png, png_len, msg, msg_len, key, key_len, enc_key, enc_key_len,
                   &new_png, &new_png_len))
         return -1;
 
@@ -109,14 +109,14 @@ int ico_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t
 }
 
 int ico_extract(unsigned char *in, size_t in_len, const unsigned char *key, size_t key_len,
-                const unsigned char *enc_key, unsigned char **msg, size_t *msg_len) {
+                const unsigned char *enc_key, size_t enc_key_len, unsigned char **msg, size_t *msg_len) {
     unsigned idx;
     unsigned char *png;
     size_t png_len;
     if (ico_find_png(in, in_len, &idx, &png, &png_len))
         return -1;
     (void)idx;
-    return png_extract(png, png_len, key, key_len, enc_key, msg, msg_len);
+    return png_extract(png, png_len, key, key_len, enc_key, enc_key_len, msg, msg_len);
 }
 
 int ico_capacity(const unsigned char *in, size_t in_len, size_t *bytes) {

@@ -31,7 +31,8 @@ static void usage(FILE *f) {
         "  -m, --message text message to hide\n"
         "  -f, --file    read the message from a file\n"
         "  -k, --key     optional key (derives the bit path)\n"
-        "  -p, --passphrase optional passphrase (encrypts the payload; ChaCha20 + PBKDF2)\n"
+        "  -p, --passphrase optional passphrase (encrypts the payload; ChaCha20 +\n"
+        "                     PBKDF2 with a random per-message salt)\n"
         "  -v, --verbose print details about the detected format to stderr\n"
         "  -h, --help    show this help\n"
         "      --version print the version and exit\n", STEN_VERSION);
@@ -122,10 +123,11 @@ static unsigned char *read_message(const char *msg, const char *msgfile, size_t 
 }
 
 typedef int (*embed_fn)(unsigned char *, size_t, const unsigned char *, size_t,
-                        const unsigned char *, size_t, const unsigned char *,
+                        const unsigned char *, size_t, const unsigned char *, size_t,
                         unsigned char **, size_t *);
 typedef int (*extract_fn)(unsigned char *, size_t, const unsigned char *, size_t,
-                          const unsigned char *, unsigned char **, size_t *);
+                          const unsigned char *, size_t,
+                          unsigned char **, size_t *);
 typedef int (*capacity_fn)(const unsigned char *, size_t, size_t *);
 typedef int (*inspect_fn)(const unsigned char *, size_t, sten_info_t *);
 
@@ -139,7 +141,7 @@ static const char *format_of(const unsigned char *d, size_t n, fmt_t *out) {
 static int do_encode(const char *in_path, const char *out_path,
                      const char *msg, const char *msgfile,
                      const unsigned char *key, size_t klen,
-                     const unsigned char *enc_key) {
+                     const unsigned char *enc_key, size_t enc_key_len) {
     size_t msg_len = 0;
     unsigned char *msgdata = read_message(msg, msgfile, &msg_len);
     if (!msgdata) {
@@ -176,7 +178,7 @@ static int do_encode(const char *in_path, const char *out_path,
     }
     unsigned char *out = NULL;
     size_t out_len = 0;
-    int rc = fn(in, in_len, msgdata, msg_len, key, klen, enc_key, &out, &out_len);
+    int rc = fn(in, in_len, msgdata, msg_len, key, klen, enc_key, enc_key_len, &out, &out_len);
     if (msgdata != (unsigned char *)msg)
         free(msgdata);
     if (rc != 0) {
@@ -191,7 +193,7 @@ static int do_encode(const char *in_path, const char *out_path,
 }
 
 static int do_decode(const char *in_path, const unsigned char *key, size_t klen,
-                     const unsigned char *enc_key) {
+                     const unsigned char *enc_key, size_t enc_key_len) {
     size_t in_len;
     unsigned char *in = read_file(in_path, &in_len);
     if (!in)
@@ -217,7 +219,7 @@ static int do_decode(const char *in_path, const unsigned char *key, size_t klen,
     }
     unsigned char *msg = NULL;
     size_t msg_len = 0;
-    int rc = fn(in, in_len, key, klen, enc_key, &msg, &msg_len);
+    int rc = fn(in, in_len, key, klen, enc_key, enc_key_len, &msg, &msg_len);
     free(in);
     if (rc == 1) {
         fprintf(stderr, "no message found (clean image or wrong key)\n");
@@ -312,8 +314,6 @@ static int do_inspect(const char *in_path) {
     return 0;
 }
 
-static const unsigned char PBKDF2_SALT[16] = "sten-pbkdf2-salt";
-
 int main(int argc, char **argv) {
     if (argc < 2) {
         usage(stderr);
@@ -367,17 +367,16 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    unsigned char key32[32];
     const unsigned char *kptr = NULL;
     size_t klen = 0;
     const unsigned char *enc_key = NULL;
+    size_t enc_key_len = 0;
     if (pass) {
-        pbkdf2_sha256((const unsigned char *)pass, strlen(pass),
-                      PBKDF2_SALT, sizeof(PBKDF2_SALT),
-                      STEN_PBKDF2_ITERS, key32, sizeof(key32));
-        kptr = key32;
-        klen = sizeof(key32);
-        enc_key = key32;
+        /* The passphrase only protects the payload: the bit path is derived
+         * from the image alone, and the encryption key is derived in the
+         * scatter layer from a random per-message salt. */
+        enc_key = (const unsigned char *)pass;
+        enc_key_len = strlen(pass);
     } else if (key) {
         kptr = (const unsigned char *)key;
         klen = strlen(key);
@@ -388,14 +387,14 @@ int main(int argc, char **argv) {
             usage(stderr);
             return 2;
         }
-        return do_encode(in_path, out_path, msg, msgfile, kptr, klen, enc_key);
+        return do_encode(in_path, out_path, msg, msgfile, kptr, klen, enc_key, enc_key_len);
     }
     if (!strcmp(cmd, "decode")) {
         if (!in_path) {
             usage(stderr);
             return 2;
         }
-        return do_decode(in_path, kptr, klen, enc_key);
+        return do_decode(in_path, kptr, klen, enc_key, enc_key_len);
     }
     if (!strcmp(cmd, "capacity")) {
         if (!in_path) {

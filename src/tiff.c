@@ -123,14 +123,14 @@ static int tiff_parse(const unsigned char *in, size_t len,
 }
 
 int tiff_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_t msg_len,
-               const unsigned char *key, size_t key_len, const unsigned char *enc_key,
+               const unsigned char *key, size_t key_len, const unsigned char *enc_key, size_t enc_key_len,
                unsigned char **out, size_t *out_len) {
     unsigned char *pixels;
     size_t pix_len;
     if (tiff_parse(in, in_len, &pixels, &pix_len, NULL, NULL))
         return -1;
     carrier_t c = { pixels, pix_len, NULL };
-    int rc = scatter_embed_ex(&c, pixels, pix_len, msg, msg_len, key, key_len, 3, enc_key);
+    int rc = scatter_embed_ex(&c, pixels, pix_len, msg, msg_len, key, key_len, 3, enc_key, enc_key_len);
     if (rc == -1) {
         fprintf(stderr, "error: message too large for this image\n");
         return -1;
@@ -145,13 +145,13 @@ int tiff_embed(unsigned char *in, size_t in_len, const unsigned char *msg, size_
 }
 
 int tiff_extract(unsigned char *in, size_t in_len, const unsigned char *key, size_t key_len,
-                 const unsigned char *enc_key, unsigned char **msg, size_t *msg_len) {
+                 const unsigned char *enc_key, size_t enc_key_len, unsigned char **msg, size_t *msg_len) {
     unsigned char *pixels;
     size_t pix_len;
     if (tiff_parse(in, in_len, &pixels, &pix_len, NULL, NULL))
         return -1;
     carrier_t c = { pixels, pix_len, NULL };
-    return scatter_auto_extract_ex(&c, pixels, pix_len, key, key_len, enc_key, msg, msg_len);
+    return scatter_auto_extract_ex(&c, pixels, pix_len, key, key_len, enc_key, enc_key_len, msg, msg_len);
 }
 
 int tiff_capacity(const unsigned char *in, size_t in_len, size_t *bytes) {

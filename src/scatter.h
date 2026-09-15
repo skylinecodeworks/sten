@@ -25,12 +25,14 @@ int scatter_embed_v1(carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
                      const unsigned char *msg, size_t msg_len,
                      const unsigned char *key, size_t key_len, int redundancy);
 
-/* Same as scatter_embed, but encrypts the stored payload with a 32-byte key
- * (ChaCha20; salt/nonce embedded in the payload). enc_key NULL = plain. */
+/* Same as scatter_embed, but encrypts the stored payload.
+ * Passphrase-based: enc_key is the raw passphrase (enc_key_len bytes); a random
+ * per-message salt is drawn, the key is derived via PBKDF2-HMAC-SHA256 and the
+ * payload is encrypted with ChaCha20 (salt/nonce embedded). enc_key NULL = plain. */
 int scatter_embed_ex(carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
                      const unsigned char *msg, size_t msg_len,
                      const unsigned char *key, size_t key_len, int redundancy,
-                     const unsigned char *enc_key);
+                     const unsigned char *enc_key, size_t enc_key_len);
 
 /* Extracts by testing redundancies 3, 2 and 1.
  * Returns 0 ok, 1 no message (or wrong key), -1 internal error. */
@@ -38,10 +40,10 @@ int scatter_auto_extract(const carrier_t *c, const unsigned char *fpsrc, size_t 
                          const unsigned char *key, size_t key_len,
                          unsigned char **msg, size_t *msg_len);
 
-/* Variant with a 32-byte decryption key, as scatter_embed_ex. */
+/* Variant with a passphrase decryption key, as scatter_embed_ex. */
 int scatter_auto_extract_ex(const carrier_t *c, const unsigned char *fpsrc, size_t fpsrc_len,
                             const unsigned char *key, size_t key_len,
-                            const unsigned char *enc_key,
+                            const unsigned char *enc_key, size_t enc_key_len,
                             unsigned char **msg, size_t *msg_len);
 
 /* Maximum embeddable message bytes at the given redundancy. */

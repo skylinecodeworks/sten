@@ -84,11 +84,11 @@ Optional key. It only derives the ScatterBit path (a seed); it does not
 encrypt the payload.
 .TP
 .BI "\-p, \-\-passphrase " passphrase
-Optional passphrase. Derives a bit path and encrypts the payload with
-ChaCha20, itself keyed by PBKDF2\-HMAC\-SHA256. With
-.B \-p
-the length of the hidden message is also obfuscated (a fixed-size random
-padding, stored length, decrypted payload and a checksum are hidden).
+Optional passphrase. Encrypts the stored payload with ChaCha20; the key is
+derived from the passphrase with PBKDF2\-HMAC\-SHA256 (100 000 iterations)
+over a fresh random salt (and nonce) drawn from the OS entropy source for
+every encoding. The bit path is derived from the image alone, so the
+passphrase protects the payload itself rather than its location.
 .TP
 .BR "\-v, \-\-verbose"
 Print details about the detected format to standard error.
@@ -127,9 +127,12 @@ I/O failure).
 is not encryption. Anyone who knows the image can try to extract the
 payload; use
 .B \-p
-when the message must be protected, and strong keys when deriving paths is
-sensitive. The COM-only JPEG backend keeps pixels untouched, so capacity is
-unrelated to image size.
+when the message must be protected. With
+.B \-p
+the payload is encrypted with ChaCha20 keyed by PBKDF2\-HMAC\-SHA256
+(100 000 iterations) over a random per-message salt, so the same passphrase
+yields different output on every run. The COM-only JPEG backend keeps pixels
+untouched, so capacity is unrelated to image size.
 .SH FILES
 .TP
 .I docs/sten.1

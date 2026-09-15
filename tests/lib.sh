@@ -56,6 +56,14 @@ assert_file_eq() {
     fi
 }
 
+assert_file_neq() {
+    if cmp -s "$2" "$3"; then
+        fail "$1 (files identical: $2 vs $3)"
+    else
+        pass "$1"
+    fi
+}
+
 # assert_rc <name> <expected_rc> <command...>
 assert_rc() {
     _name=$1

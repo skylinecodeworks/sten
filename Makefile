@@ -2,7 +2,7 @@ CC      ?= gcc
 CFLAGS  ?= -O2
 CFLAGS  += -std=c11 -Wall -Wextra
 
-SRC     = src/main.c src/scatter.c src/util.c src/deflate.c src/crypto.c \
+SRC     = src/main.c src/scatter.c src/util.c src/deflate.c src/crypto.c src/rand.c \
           src/bmp.c src/png.c src/gif.c src/jpeg.c src/format.c \
           src/ppm.c src/tga.c src/tiff.c src/ico.c
 OBJ     = $(SRC:.c=.o)
@@ -20,13 +20,13 @@ $(BIN): $(OBJ)
 tools/gen: tools/gen_test_images.c src/util.o src/deflate.o
 	$(CC) $(CFLAGS) -Isrc -o $@ tools/gen_test_images.c src/util.o src/deflate.o
 
-$(UNIT): tests/unit.c src/util.o src/deflate.o src/scatter.o src/crypto.o
+$(UNIT): tests/unit.c src/util.o src/deflate.o src/scatter.o src/crypto.o src/rand.o
 	@mkdir -p tests/build
-	$(CC) $(CFLAGS) -Isrc -o $@ tests/unit.c src/util.o src/deflate.o src/scatter.o src/crypto.o
+	$(CC) $(CFLAGS) -Isrc -o $@ tests/unit.c src/util.o src/deflate.o src/scatter.o src/crypto.o src/rand.o
 
 FUZZOBJ = src/util.o src/deflate.o src/crypto.o src/format.o \
           src/bmp.o src/png.o src/gif.o src/jpeg.o src/ppm.o \
-          src/tga.o src/tiff.o src/ico.o src/scatter.o
+          src/tga.o src/tiff.o src/ico.o src/scatter.o src/rand.o
 
 tools/fuzz: tools/fuzz.c $(FUZZOBJ)
 	$(CC) $(CFLAGS) -Isrc -o $@ tools/fuzz.c $(FUZZOBJ)

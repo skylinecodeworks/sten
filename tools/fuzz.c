@@ -22,10 +22,10 @@
 struct op {
     const char *name;
     int (*extract)(unsigned char *, size_t, const unsigned char *, size_t,
-                   const unsigned char *, unsigned char **, size_t *);
+                   const unsigned char *, size_t, unsigned char **, size_t *);
     int (*capacity)(const unsigned char *, size_t, size_t *);
     int (*embed)(unsigned char *, size_t, const unsigned char *, size_t,
-                 const unsigned char *, size_t, const unsigned char *,
+                 const unsigned char *, size_t, const unsigned char *, size_t,
                  unsigned char **, size_t *);
 };
 
@@ -186,13 +186,13 @@ static void exercise(const unsigned char *d, size_t n) {
         memcpy(copy, d, n);
         unsigned char *m = NULL;
         size_t ml = 0;
-        (void)ops[k].extract(copy, n, key, sizeof(key), NULL, &m, &ml);
+        (void)ops[k].extract(copy, n, key, sizeof(key), NULL, 0, &m, &ml);
         free(m);
         size_t cap = 0;
         (void)ops[k].capacity(copy, n, &cap);
         unsigned char *o = NULL;
         size_t ol = 0;
-        (void)ops[k].embed(copy, n, msg, sizeof(msg), key, sizeof(key), NULL,
+        (void)ops[k].embed(copy, n, msg, sizeof(msg), key, sizeof(key), NULL, 0,
                            &o, &ol);
         if (o && o != copy)
             free(o);
