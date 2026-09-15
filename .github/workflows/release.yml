@@ -99,13 +99,13 @@ jobs:
       - name: Build .apk
         run: |
           apk add --no-cache alpine-sdk
-          abuild-keygen -a -n
+          adduser -D builder
+          chown -R builder "$GITHUB_WORKSPACE" /github/home
           sed -i "s/@VERSION@/${GITHUB_REF_NAME#v}/g" packaging/APKBUILD
           cp packaging/APKBUILD .
-          abuild checksum
-          abuild -F -r
+          su builder -c 'abuild-keygen -a -n && abuild checksum && REPODEST=/tmp/packages abuild -r'
           mkdir -p apk-dist
-          find "$HOME/packages" -name '*.apk' -exec cp {} apk-dist/ \;
+          find /tmp/packages -name '*.apk' -exec cp {} apk-dist/ \;
 
       - name: Upload .apk
         uses: actions/upload-artifact@v4
