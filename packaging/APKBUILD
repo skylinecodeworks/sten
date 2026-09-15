@@ -21,10 +21,10 @@ check() {
 
 package() {
         make install DESTDIR="$pkgdir" PREFIX=/usr
+        gzip -f "$pkgdir/usr/share/man/man1/sten.1"
 }
 
 doc() {
         default_doc
-        install -Dm644 "$builddir"/docs/sten.1 \
-                "$subpkgdir"/usr/share/man/man1/sten.1
 }
+
