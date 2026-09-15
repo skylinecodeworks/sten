@@ -15,17 +15,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build source tarball
-        run: make dist
-
       - name: Build .deb package
         run: sh packaging/deb/build-deb.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Build source tarball
+        run: make dist
 
       - name: Upload tarball
         uses: actions/upload-artifact@v4
         with:
           name: sdist
           path: dist/sten-*.tar.gz
+          if-no-files-found: error
 
       - name: Upload .deb
         uses: actions/upload-artifact@v4
