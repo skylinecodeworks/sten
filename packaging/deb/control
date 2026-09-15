@@ -1,0 +1,15 @@
+Package: sten
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: Skyline Code Works <skylinecodeworks@users.noreply.github.com>
+Homepage: https://github.com/skylinecodeworks/sten
+Depends: libc6 (>= 2.17)
+Description: ScatterBit steganography for images
+ sten hides a message inside an image by modifying its least significant
+ bytes using a pseudo-random ScatterBit walk, so the payload is spread over
+ the whole carrier. The modified image keeps its format and stays visually
+ unchanged. Written in pure C with no external libraries.
+ Supported carrier formats: BMP, PNG, GIF, JPEG (COM segment), PNM/PAM,
+ TGA, TIFF and ICO.

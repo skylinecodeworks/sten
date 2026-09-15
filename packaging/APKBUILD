@@ -1,0 +1,30 @@
+# Maintainer: Skyline Code Works <skylinecodeworks@users.noreply.github.com>
+pkgname=sten
+pkgver=@VERSION@
+pkgrel=0
+pkgdesc="ScatterBit steganography for images (pure C, no external libraries)"
+url="https://github.com/skylinecodeworks/sten"
+arch="x86_64 aarch64"
+license="MIT"
+makedepends="gcc make"
+subpackages="$pkgname-doc"
+source="$pkgname-$pkgver.tar.gz"
+sha256sums="SKIP"
+
+build() {
+        make
+}
+
+check() {
+        make test
+}
+
+package() {
+        make install DESTDIR="$pkgdir" PREFIX=/usr
+}
+
+doc() {
+        default_doc
+        install -Dm644 "$builddir"/docs/sten.1 \
+                "$subpkgdir"/usr/share/man/man1/sten.1
+}

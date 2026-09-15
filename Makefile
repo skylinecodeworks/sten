@@ -2,6 +2,9 @@ CC      ?= gcc
 CFLAGS  ?= -O2
 CFLAGS  += -std=c11 -Wall -Wextra
 
+VERSION  ?= 2.0
+DISTNAME  = sten-$(VERSION)
+
 SRC     = src/main.c src/scatter.c src/util.c src/deflate.c src/crypto.c src/rand.c \
           src/bmp.c src/png.c src/gif.c src/jpeg.c src/format.c \
           src/ppm.c src/tga.c src/tiff.c src/ico.c
@@ -13,6 +16,14 @@ all: $(BIN)
 
 $(BIN): $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $(OBJ)
+
+# Fully static, stripped binary (portable across distros; musl in CI).
+static:
+	$(CC) $(CFLAGS) -Isrc -static -s -o sten-static $(SRC)
+
+dist:
+	@mkdir -p dist
+	git archive --format=tar.gz --prefix=$(DISTNAME)/ -o dist/$(DISTNAME).tar.gz HEAD
 
 %.o: %.c
 	$(CC) $(CFLAGS) -Isrc -c -o $@ $<
@@ -66,7 +77,7 @@ uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/$(BIN) $(DESTDIR)$(MANDIR)/man1/sten.1
 
 clean:
-	rm -f $(OBJ) $(BIN) tools/gen $(UNIT) tools/fuzz
-	rm -rf tests/build
+	rm -f $(OBJ) $(BIN) tools/gen $(UNIT) tools/fuzz sten-static
+	rm -rf tests/build dist
 
-.PHONY: all test clean fuzz bench fuzz-san test-san install uninstall
+.PHONY: all test clean fuzz bench fuzz-san test-san install uninstall static dist

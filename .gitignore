@@ -1,5 +1,11 @@
 *.o
 sten
+sten-static
 tools/gen
 tools/fuzz
 tests/build/
+dist/
+*.deb
+*.rpm
+*.apk
+pkg/
