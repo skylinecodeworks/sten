@@ -102,6 +102,7 @@ jobs:
           abuild-keygen -a -n
           sed -i "s/@VERSION@/${GITHUB_REF_NAME#v}/g" packaging/APKBUILD
           cp packaging/APKBUILD .
+          abuild checksum
           abuild -F -r
           mkdir -p apk-dist
           find "$HOME/packages" -name '*.apk' -exec cp {} apk-dist/ \;
