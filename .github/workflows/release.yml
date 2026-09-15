@@ -100,6 +100,7 @@ jobs:
         run: |
           apk add --no-cache alpine-sdk
           adduser -D builder
+          addgroup builder abuild
           chown -R builder "$GITHUB_WORKSPACE" /github/home
           sed -i "s/@VERSION@/${GITHUB_REF_NAME#v}/g" packaging/APKBUILD
           cp packaging/APKBUILD .
