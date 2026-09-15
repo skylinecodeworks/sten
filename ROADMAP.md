@@ -20,6 +20,7 @@ Scope decisions:
 - Tests: 15 shell cases + C unit tests (105 passing), generated fixtures, optional Pillow validation, mutation fuzzer `tools/fuzz`, and ASan/UBSan gates (`make fuzz-san` / `make test-san`).
 - Docs: README, man page `docs/sten.1`, `make install` (PREFIX/DESTDIR), benchmarks (`make bench`).
 - Git: phases 0-4 committed and merged to `main`; clean history.
+- Distribution: `make dist` / `make static`, packaging manifests for Debian/Ubuntu (`.deb`), Fedora/RHEL (`.rpm`), Alpine (`.apk`) and Arch/AUR (`PKGBUILD`), plus GitHub Actions CI (`ci.yml`) and a tagged-release pipeline (`release.yml`).
 
 ## Phase 0 — Minimal foundation (done)
 
@@ -70,7 +71,8 @@ Carried-over debt: dynamic-Huffman encoder still missing. See `Pending`.
 Debt found while completing the phases:
 
 - Deflate **dynamic-Huffman** encoder (deferred since Phase 1): only fixed + stored exist today. Would improve the ratio on large messages; needs `deflate_dynamic` plus output-size and reference-vector tests.
-- External CI (GitHub Actions) running `make test`, `make test-san` and `make fuzz-san` on each push/PR, complementing the local targets.
+- Community publishing (AUR login, Alpine aports, Fedora COPR) is documented in
+  `packaging/` but the accounts are not created yet.
 
 ## Backlog (out of current scope, tracked)
 

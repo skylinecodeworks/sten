@@ -102,6 +102,36 @@ installs the manual page to `$(PREFIX)/share/man/man1/sten.1`.
 
 Requires a C99/C11 compiler and `make`. Runs on any POSIX system.
 
+## Installation / Downloads
+
+Prebuilt packages are attached to every tagged **GitHub Release**:
+
+| Channel | Asset | Install |
+| --- | --- | --- |
+| Debian/Ubuntu | `sten_<ver>_amd64.deb` | `sudo apt install ./sten_<ver>_amd64.deb` |
+| Fedora/RHEL | `sten-<ver>-1.x86_64.rpm` | `sudo dnf install ./sten-<ver>-1.x86_64.rpm` |
+| Alpine | `sten-<ver>-r0.apk` | `apk add ./sten-<ver>-r0.apk` |
+| Arch | `PKGBUILD` (AUR) | `makepkg -si` on the AUR package |
+| Any Linux | `sten-<ver>-linux-musl-x86_64` | static binary; drop it in `$PATH` |
+| Source | `sten-<ver>.tar.gz` | tarball for `make && sudo make install` |
+
+Every release ships a `SHA256SUMS` file for verification.
+Artifacts are produced by the `releases` GitHub Actions workflow on each
+`v*` tag; the `.rpm`/`.apk`/`PKGBUILD` are built from the same tarball in
+Fedora and Alpine containers.
+
+## Creating a release
+
+Tag a commit and push the tag; `release.yml` builds all packages and opens a
+draft Release with the artifacts attached:
+
+```
+git tag v2.0
+git push origin v2.0
+```
+
+Publish the draft from the GitHub Releases page once the build is green.
+
 ## Design
 
 - `ScatterBit`: message bits are spread across carrier bytes selected by a

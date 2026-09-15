@@ -1,0 +1,162 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  dist:
+    name: Source tarball + .deb
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build source tarball
+        run: make dist
+
+      - name: Build .deb package
+        run: sh packaging/deb/build-deb.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/sten-*.tar.gz
+
+      - name: Upload .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: pkg/sten_*.deb
+
+  static:
+    name: musl static binary
+    runs-on: ubuntu-latest
+    container: alpine:edge
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build musl static binary
+        run: |
+          apk add --no-cache build-base
+          make static
+          cp sten-static "sten-${GITHUB_REF_NAME#v}-linux-musl-x86_64"
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: static
+          path: sten-*-linux-musl-x86_64
+
+  rpm:
+    name: .rpm package
+    runs-on: ubuntu-latest
+    container: fedora:41
+    needs: dist
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: .
+
+      - name: Build .rpm
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          dnf install -y rpm-build gcc make
+          mkdir -p ~/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+          cp "sten-$VERSION.tar.gz" ~/rpmbuild/SOURCES/
+          sed "s/@VERSION@/$VERSION/g" packaging/sten.spec > ~/rpmbuild/SPECS/sten.spec
+          rpmbuild -bb ~/rpmbuild/SPECS/sten.spec
+          mkdir -p rpm-dist
+          cp "$HOME"/rpmbuild/RPMS/*/*.rpm rpm-dist/
+
+      - name: Upload .rpm
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm
+          path: rpm-dist
+
+  apk:
+    name: .apk package
+    runs-on: ubuntu-latest
+    container: alpine:edge
+    needs: dist
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: .
+
+      - name: Build .apk
+        run: |
+          apk add --no-cache alpine-sdk
+          abuild-keygen -a -n
+          sed -i "s/@VERSION@/${GITHUB_REF_NAME#v}/g" packaging/APKBUILD
+          cp packaging/APKBUILD .
+          abuild -F -r
+          mkdir -p apk-dist
+          find "$HOME/packages" -name '*.apk' -exec cp {} apk-dist/ \;
+
+      - name: Upload .apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: apk-dist
+
+  pkgbuild:
+    name: PKGBUILD (AUR-ready)
+    runs-on: ubuntu-latest
+    needs: dist
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: .
+
+      - name: Finalize PKGBUILD
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          SHA="$(sha256sum "sten-$VERSION.tar.gz" | cut -d' ' -f1)"
+          sed -e "s/@VERSION@/$VERSION/g" -e "s/SKIP/$SHA/" \
+              packaging/PKGBUILD > PKGBUILD
+
+      - name: Upload PKGBUILD
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkgbuild
+          path: PKGBUILD
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [dist, static, rpm, apk, pkgbuild]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd release-assets && sha256sum * > SHA256SUMS
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "sten ${{ github.ref_name }}"
+          files: release-assets/*
+          draft: true
+          generate_release_notes: true

@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+env:
+  CC: cc
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run full test suite
+        run: make test
+
+      - name: Full suite under ASan/UBSan
+        run: make test-san
+
+      - name: Mutation fuzzer under ASan/UBSan
+        run: make fuzz-san
